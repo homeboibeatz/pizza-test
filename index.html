@@ -12,47 +12,29 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     
     html, body {
-      width: 100%;
-      height: 100%;
-      margin: 0;
-      padding: 0;
-      overflow: hidden;
-      background: #000;
-      position: fixed;
-      top: 0;
-      left: 0;
-      touch-action: none;
+      width: 100%; height: 100%; margin: 0; padding: 0;
+      overflow: hidden; background: #000; position: fixed;
+      top: 0; left: 0; touch-action: none;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     }
 
-    /* Wrapper to force fullscreen on embedded scene */
     #ar-container {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
-      overflow: hidden;
-      background: #000;
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      overflow: hidden; background: #000;
     }
 
-    /* Force canvas and video to strictly fill the screen */
     #ar-container .a-canvas, 
     #ar-container video {
-      width: 100% !important;
-      height: 100% !important;
-      max-width: 100% !important;
-      max-height: 100% !important;
-      position: absolute !important;
-      top: 0 !important;
-      left: 0 !important;
+      width: 100% !important; height: 100% !important;
+      max-width: 100% !important; max-height: 100% !important;
+      position: absolute !important; top: 0 !important; left: 0 !important;
       object-fit: cover !important;
     }
 
     #loading {
       position: fixed; inset: 0; background: #000; color: #fff;
       display: flex; flex-direction: column; justify-content: center; align-items: center;
-      z-index: 9999;
+      z-index: 9999; padding: 20px; text-align: center;
     }
     .spinner { width: 60px; height: 60px; border: 5px solid rgba(255,255,255,0.2); border-top: 5px solid #ff6b35; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px; }
     @keyframes spin { 100% { transform: rotate(360deg); } }
@@ -71,7 +53,7 @@
 
   <div id="loading">
     <div class="spinner"></div>
-    <h2>Loading AR Experience...</h2>
+    <h2 id="loading-text">Downloading 3D Model...</h2>
     <p style="font-size: 14px; color: rgba(255,255,255,0.7); margin-top: 10px;">Please allow camera access when prompted.</p>
   </div>
 
@@ -92,15 +74,12 @@
       loading-screen="enabled: false"
       embedded>
 
-      <a-assets timeout="30000">
-        <a-asset-item id="pizza-model-asset" src="pizza.glb" response-type="arraybuffer"></a-asset-item>
-      </a-assets>
-
       <a-camera position="0 0 0" look-controls="enabled: false" wasd-controls="enabled: false"></a-camera>
 
       <a-entity mindar-image-target="targetIndex: 0">
         <a-entity id="model-container" rotation="0 0 0" scale="1 1 1">
-          <a-gltf-model id="pizzaModel" src="#pizza-model-asset" position="0 0 0" rotation="0 0 0" scale="1 1 1"></a-gltf-model>
+          <!-- Model src is set dynamically by JS after Cache fetch -->
+          <a-gltf-model id="pizzaModel" src="" position="0 0 0" rotation="0 0 0" scale="1 1 1"></a-gltf-model>
         </a-entity>
       </a-entity>
     </a-scene>
@@ -108,39 +87,67 @@
 
   <script>
     // =========================================================
-    // FIX: Monkey-patch getUserMedia to prevent OverconstrainedError
+    // 1. BULLETPROOF CAMERA CONSTRAINT INTERCEPTOR
     // =========================================================
     const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-    navigator.mediaDevices.getUserMedia = function(constraints) {
-      console.log("Intercepted getUserMedia constraints:", JSON.stringify(constraints));
-      
-      // Downgrade 'exact' constraints to 'ideal' to prevent iOS crash
-      if (constraints && constraints.video) {
-        if (typeof constraints.video === 'object') {
-          if (constraints.video.facingMode && constraints.video.facingMode.exact) {
-            constraints.video.facingMode = { ideal: constraints.video.facingMode.exact };
-          }
-          if (constraints.video.width && constraints.video.width.exact) {
-            constraints.video.width = { ideal: constraints.video.width.exact };
-          }
-          if (constraints.video.height && constraints.video.height.exact) {
-            constraints.video.height = { ideal: constraints.video.height.exact };
-          }
-        }
+    navigator.mediaDevices.getUserMedia = async function(constraints) {
+      console.log("Intercepted getUserMedia:", JSON.stringify(constraints));
+      try {
+        // Try original constraints first
+        return await originalGetUserMedia(constraints);
+      } catch (err) {
+        console.warn("Camera failed with original constraints. Falling back to generic video.");
+        // If it fails (OverconstrainedError), strip all constraints and just ask for video: true
+        return await originalGetUserMedia({ video: true, audio: false });
       }
-      
-      return originalGetUserMedia(constraints).catch(err => {
-        console.error("getUserMedia failed:", err.name, err.message);
-        // If it STILL fails, try removing facingMode entirely
-        if (err.name === 'OverconstrainedError' || err.name === 'NotReadableError') {
-          console.log("Retrying without facingMode constraint...");
-          delete constraints.video.facingMode;
-          return originalGetUserMedia(constraints);
-        }
-        throw err;
-      });
     };
 
+    // =========================================================
+    // 2. MODEL CACHING LOGIC (Cache API)
+    // =========================================================
+    const MODEL_URL = 'pizza.glb';
+    const CACHE_NAME = 'pizza-ar-cache-v1';
+    const loadingText = document.getElementById('loading-text');
+
+    async function loadModelWithCache() {
+      try {
+        const cache = await caches.open(CACHE_NAME);
+        let cachedResponse = await cache.match(MODEL_URL);
+
+        if (cachedResponse) {
+          console.log("Model loaded from device cache!");
+          loadingText.innerText = "Loading model from cache...";
+        } else {
+          console.log("Downloading model for the first time...");
+          loadingText.innerText = "Downloading 3D Model...";
+          // Fetch it from network
+          const networkResponse = await fetch(MODEL_URL);
+          if (!networkResponse.ok) throw new Error("Network response was not ok.");
+          // Save to cache
+          await cache.put(MODEL_URL, networkResponse.clone());
+          cachedResponse = networkResponse;
+        }
+
+        const blob = await cachedResponse.blob();
+        const blobURL = URL.createObjectURL(blob);
+        
+        // Apply to A-Frame
+        document.getElementById('pizzaModel').setAttribute('src', blobURL);
+        console.log("Model applied to scene.");
+
+      } catch (error) {
+        console.error("Cache/Load failed:", error);
+        // Fallback to direct URL if caching fails
+        document.getElementById('pizzaModel').setAttribute('src', MODEL_URL);
+      }
+    }
+
+    // Start downloading/caching immediately
+    loadModelWithCache();
+
+    // =========================================================
+    // 3. SCENE LOGIC & MODEL SCALING FIX
+    // =========================================================
     const sceneEl = document.querySelector('a-scene');
     const loadingOverlay = document.getElementById('loading');
     const controlsUI = document.getElementById('controls-ui');
@@ -159,11 +166,8 @@
 
     sceneEl.addEventListener('arError', (event) => {
       console.error('AR Error:', event.detail);
-      if (event.detail.error === 'VIDEO_FAIL') {
-        loadingOverlay.innerHTML = '<h2>⚠️ Camera Error</h2><p style="margin-top:10px;">Could not access the back camera. If you are on a desktop, please use a mobile device. If on mobile, ensure no other app is using the camera and try reloading.</p>';
-      } else {
-        loadingOverlay.innerHTML = '<h2>❌ AR Error</h2><p>Please ensure you are using HTTPS or localhost.</p>';
-      }
+      loadingOverlay.style.display = 'flex';
+      loadingOverlay.innerHTML = '<h2>⚠️ Camera Error</h2><p style="margin-top:10px;">Could not access the camera. Please ensure no other app is using it, and that you are using HTTPS.</p>';
     });
 
     const targetEl = document.querySelector('[mindar-image-target]');
@@ -172,13 +176,24 @@
       
       const modelEl = document.getElementById('pizzaModel');
       const model = modelEl.getObject3D('mesh');
+      
       if (model) {
         console.log('Model mesh found! Sizing...');
         
+        // FIX: Force geometry to compute bounding box (fixes 'Missing min/max' warning)
+        model.traverse((o) => {
+          if (o.isMesh && o.geometry) {
+            if (!o.geometry.boundingBox) {
+              o.geometry.computeBoundingBox();
+            }
+          }
+        });
+
         const box = new THREE.Box3().setFromObject(model);
         const size = box.getSize(new THREE.Vector3());
         const center = box.getCenter(new THREE.Vector3());
 
+        // Center geometry
         model.traverse((o) => {
           if (o.isMesh && o.geometry) {
             o.geometry.translate(-center.x, -center.y, -center.z);
@@ -186,12 +201,15 @@
         });
 
         const maxDim = Math.max(size.x, size.y, size.z);
-        if (maxDim > 0) {
-          const scale = 1.5 / maxDim;
-          modelContainer.setAttribute('scale', `${scale} ${scale} ${scale}`);
-          currentScale = scale;
-          baseScale = scale;
+        let scale = 0.5; // Fallback scale
+        if (maxDim > 0 && isFinite(maxDim)) {
+          scale = 1.5 / maxDim; // Fit to 1.5 units
         }
+
+        modelContainer.setAttribute('scale', `${scale} ${scale} ${scale}`);
+        currentScale = scale;
+        baseScale = scale;
+        console.log(`Model scaled to ${scale}`);
       } else {
         console.warn('Target found, but 3D model is still loading...');
       }
@@ -201,6 +219,9 @@
       console.log('Target lost');
     });
 
+    // =========================================================
+    // 4. TOUCH CONTROLS
+    // =========================================================
     document.addEventListener('touchstart', (e) => {
       if (e.touches.length === 2) {
         const dx = e.touches[0].clientX - e.touches[1].clientX;
