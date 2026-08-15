@@ -2,75 +2,54 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" 
-          content="width=device-width, 
-                   initial-scale=1.0, 
-                   maximum-scale=1.0, 
-                   user-scalable=no, 
+    <meta name="viewport"
+          content="width=device-width,
+                   initial-scale=1.0,
+                   maximum-scale=1.0,
+                   user-scalable=no,
                    viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#000000">
-    
     <title>Pizza AR Menu</title>
-    
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
 
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body {
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            position: fixed;
-            top: 0;
-            left: 0;
+            width: 100%; height: 100%; overflow: hidden;
+            position: fixed; top: 0; left: 0;
             background: #000;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
-
-        a-scene {
-            width: 100% !important;
-            height: 100% !important;
-            position: fixed !important;
-            top: 0 !important;
-            left: 0 !important;
+        a-scene, canvas {
+            width: 100% !important; height: 100% !important;
+            position: fixed !important; top: 0 !important; left: 0 !important;
+            display: block !important;
             z-index: 1;
-            display: block !important;
         }
 
-        canvas {
-            width: 100% !important;
-            height: 100% !important;
-            display: block !important;
+        /* Start overlay */
+        #start-overlay {
+            position: fixed; inset: 0;
+            background: rgba(10,10,30,0.92);
+            backdrop-filter: blur(12px);
+            z-index: 300;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            color: #fff; text-align: center; padding: 30px;
+            transition: opacity 0.4s;
         }
 
-        /* Simple bottom text */
-        #simple-text {
-            position: fixed;
-            bottom: 30px;
-            left: 50%;
-            transform: translateX(-50%);
-            color: rgba(255, 255, 255, 0.7);
-            font-size: 14px;
-            z-index: 100;
-            pointer-events: none;
-        }
-
-        /* Loading spinner */
+        /* Loading spinner — hidden by default, shown only while AR starts */
         #loading-spinner {
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(10, 10, 40, 0.85);
+            position: fixed; inset: 0;
+            background: rgba(10, 10, 40, 0.6);
             z-index: 200;
-            display: flex;
+            display: none;            /* CHANGED: hidden until Start clicked */
             flex-direction: column;
-            align-items: center;
-            justify-content: center;
+            align-items: center; justify-content: center;
             transition: opacity 0.5s ease;
+            pointer-events: none;
         }
         .spinner {
             width: 60px; height: 60px;
@@ -81,140 +60,146 @@
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-        /* Controls UI */
+        /* Scanning overlay — hidden until AR is ready */
+        #scanning-overlay {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.25);
+            z-index: 50;              /* CHANGED: below spinner, above scene video */
+            display: none;            /* CHANGED: hidden by default */
+            flex-direction: column;
+            align-items: center; justify-content: center;
+            color: #fff; text-align: center; padding: 30px;
+            pointer-events: none;
+        }
+
         #controls-ui {
-            position: fixed;
-            top: 20px; right: 20px;
+            position: fixed; top: 20px; right: 20px;
             background: rgba(0,0,0,0.5);
             backdrop-filter: blur(10px);
             border: 1px solid rgba(255,255,255,0.15);
             border-radius: 16px;
-            padding: 18px 22px;
-            color: #fff;
-            z-index: 150;
-            font-size: 14px;
-            max-width: 260px;
+            padding: 18px 22px; color: #fff;
+            z-index: 150; font-size: 14px; max-width: 260px;
             pointer-events: none;
         }
         .instruction { color: rgba(255,255,255,0.75); margin-top: 6px; font-size: 13px; }
 
-        /* Debug info panel */
         #debug-ui {
-            position: fixed;
-            top: 20px; left: 20px;
+            position: fixed; top: 20px; left: 20px;
             background: rgba(0,0,0,0.5);
             backdrop-filter: blur(8px);
             border: 1px solid rgba(255,255,255,0.15);
             border-radius: 12px;
-            padding: 14px 18px;
-            color: #fff;
-            z-index: 150;
-            font-size: 12px;
+            padding: 14px 18px; color: #fff;
+            z-index: 150; font-size: 12px;
             pointer-events: none;
+            max-height: 80vh; overflow: hidden;
         }
         .debug-line { margin-top: 3px; line-height: 1.4; }
         .status-warning { color: #ffaa00; }
         .status-ok { color: #28a745; }
         .status-error { color: #ff4444; }
 
-        /* Close button */
         .close-btn {
-            position: fixed;
-            bottom: 20px; left: 20px;
+            position: fixed; bottom: 20px; left: 20px;
             background: rgba(255,255,255,0.15);
             border: 1px solid rgba(255,255,255,0.25);
-            color: #fff;
-            padding: 10px 18px;
-            border-radius: 30px;
-            font-size: 13px;
-            cursor: pointer;
-            z-index: 150;
+            color: #fff; padding: 10px 18px;
+            border-radius: 30px; font-size: 13px;
+            cursor: pointer; z-index: 150;
             backdrop-filter: blur(6px);
-            transition: background 0.2s;
         }
         .close-btn:hover { background: rgba(255,255,255,0.3); }
     </style>
 </head>
 <body>
     <!-- A-Frame + MindAR Scene -->
+    <!-- KEY FIXES:
+         - autoStart: false  → we start MindAR from the Start button (required for iOS user gesture)
+         - uiLoading/uiScanning left to default (MindAR creates its own) so we don't fight over visibility
+         - renderer: antialias true, no logarithmicDepthBuffer (causes issues on some mobile GPUs)
+    -->
     <a-scene
         id="scene"
         embedded
-        mindar-image="imageTargetSrc: targets.mind; maxTrack: 4; warmupCount: 8; uiLoading: #loading-spinner; uiScanning: #scanning-overlay; filterMinCF: 0.01; filterBeta: 10;"
+        mindar-image="imageTargetSrc: targets.mind; maxTrack: 4; autoStart: false; filterMinCF: 0.0001; filterBeta: 0.01;"
+        renderer="antialias: true; colorManagement: true; sortObjects: true; physicallyCorrectLights: true;"
         color-space="sRGB"
-        renderer="logarithmicDepthBuffer: true; colorManagement: true; sortObjects: true;"
         vr-mode-ui="enabled: false"
         device-orientation-permission-ui="enabled: false"
         loading-screen="enabled: false">
-        
+
+        <!-- Assets FIRST so they're ready before entities query them -->
+        <a-assets>
+            <a-asset-item
+                id="pizza-model-asset"
+                src="pizza.glb"
+                crossorigin="anonymous"
+                response-type="arraybuffer">
+            </a-asset-item>
+        </a-assets>
+
         <!-- Camera -->
         <a-camera position="0 0 0" look-controls="enabled: false" wasd-controls="enabled: false"></a-camera>
 
         <!-- Image target entity that anchors the content -->
         <a-entity mindar-image-target="targetIndex: 0">
-            
-            <!-- Main pizza model container -->
-            <a-entity 
+
+            <a-entity
                 id="model-container"
                 position="0 0 0"
                 rotation="0 0 0"
                 scale="1 1 1">
-                
-                <!-- Model with ID for querying -->
-                <a-gltf-model 
+
+                <!-- Removed animation-mixer (component not imported) -->
+                <a-gltf-model
                     id="pizzaModel"
                     src="#pizza-model-asset"
                     position="0 0 0"
                     rotation="0 0 0"
-                    scale="1 1 1"
-                    animation-mixer>
+                    scale="1 1 1">
                 </a-gltf-model>
 
                 <!-- Debug box - visible when tracking works -->
-                <a-box 
+                <a-box
                     id="debug-box"
                     color="red"
-                    width="0.2" 
-                    height="0.2" 
-                    depth="0.2"
-                    position="0 0 0"
+                    width="0.2" height="0.2" depth="0.2"
+                    position="0 0.15 0"
                     visible="false">
                 </a-box>
             </a-entity>
         </a-entity>
-
-        <!-- Asset management -->
-        <a-assets>
-            <!-- Pizza GLB model with crossorigin -->
-            <a-asset-item 
-                id="pizza-model-asset" 
-                src="pizza.glb"
-                crossorigin="anonymous">
-            </a-asset-item>
-        </a-assets>
     </a-scene>
 
     <!-- Permission / Start overlay -->
-    <div id="start-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(10,10,30,0.9);backdrop-filter:blur(12px);z-index:300;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;text-align:center;padding:30px;transition:opacity 0.4s;">
+    <div id="start-overlay">
         <div style="font-size:28px;margin-bottom:10px;">🍕 Pizza AR Menu</div>
-        <div style="font-size:16px;color:rgba(255,255,255,0.8);margin-bottom:30px;max-width:320px;line-height:1.5;">Point your camera at the pizza menu image to see the 3D pizza model appear.</div>
-        <button id="start-btn" style="padding:14px 32px;background:#ff6b35;color:#fff;border:none;border-radius:50px;font-size:17px;font-weight:bold;cursor:pointer;box-shadow:0 8px 24px rgba(255,107,53,0.3);transition:transform 0.1s,box-shadow 0.2s;">Start AR Camera</button>
+        <div style="font-size:16px;color:rgba(255,255,255,0.8);margin-bottom:30px;max-width:320px;line-height:1.5;">
+            Point your camera at the pizza menu image to see the 3D pizza model appear.
+        </div>
+        <button id="start-btn"
+            style="padding:14px 32px;background:#ff6b35;color:#fff;border:none;border-radius:50px;font-size:17px;font-weight:bold;cursor:pointer;box-shadow:0 8px 24px rgba(255,107,53,0.3);">
+            Start AR Camera
+        </button>
         <div style="margin-top:20px;font-size:12px;color:rgba(255,255,255,0.4);">Requires camera access</div>
     </div>
 
-    <!-- Scanning overlay -->
-    <div id="scanning-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.25);z-index:250;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;text-align:center;padding:30px;pointer-events:none;">
-        <div style="font-size:22px;margin-bottom:12px;">🍕 Pizza AR Menu</div>
-        <div style="font-size:14px;color:rgba(255,255,255,0.7);margin-bottom:30px;">Point camera at the pizza menu image</div>
-        <div style="width:200px;height:200px;border:2px dashed rgba(255,255,255,0.3);border-radius:16px;display:flex;align-items:center;justify-content:center;">
-            <span style="font-size:60px;opacity:0.3;">🍕</span>
+    <!-- Scanning overlay (hidden by default; shown when AR is ready, hidden when target found) -->
+    <div id="scanning-overlay">
+        <div style="font-size:22px;margin-bottom:12px;">🍕 Scanning…</div>
+        <div style="font-size:14px;color:rgba(255,255,255,0.85);margin-bottom:30px;">
+            Point camera at the pizza menu image
+        </div>
+        <div style="width:200px;height:200px;border:2px dashed rgba(255,255,255,0.4);border-radius:16px;display:flex;align-items:center;justify-content:center;">
+            <span style="font-size:60px;opacity:0.5;">🍕</span>
         </div>
     </div>
 
     <!-- Loading indicator -->
     <div id="loading-spinner">
         <div class="spinner"></div>
-        <div style="margin-top: 15px; font-size: 14px;">Loading AR...</div>
+        <div style="margin-top: 15px; font-size: 14px;">Starting AR camera…</div>
     </div>
 
     <!-- Control instructions -->
@@ -228,9 +213,9 @@
     <!-- Debug info panel -->
     <div id="debug-ui">
         <div class="debug-line"><strong>AR Status:</strong></div>
-        <div class="debug-line"><span class="status-warning">Waiting...</span></div>
+        <div class="debug-line"><span id="ar-status" class="status-warning">Idle</span></div>
         <div class="debug-line" style="margin-top: 8px;"><strong>Model:</strong></div>
-        <div class="debug-line"><span id="model-status" class="status-warning">Loading...</span></div>
+        <div class="debug-line"><span id="model-status" class="status-warning">Not loaded</span></div>
         <div class="debug-line" style="margin-top: 8px;"><strong>Tracking:</strong></div>
         <div class="debug-line"><span id="track-status" class="status-warning">Idle</span></div>
         <div class="debug-line" style="margin-top: 8px;"><strong>Scale:</strong></div>
@@ -242,417 +227,295 @@
     <!-- Close button -->
     <button class="close-btn" id="close-btn">✕ Exit AR</button>
 
-    <!-- Scripts -->
+    <!-- Scripts: A-Frame first, MindAR second -->
     <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 
     <script>
-        // ============================================================================
-        // CONFIGURATION & STATE
-        // ============================================================================
-        
-        const CONFIG = {
-            // Initial model scale (in A-Frame units)
-            // Adjust this based on your pizza.glb size
-            INITIAL_SCALE: 1.0,
-            
-            // Position offset from target (Z-offset for model)
-            POSITION_Z: 0.3,
-            
-            // Rotation multiplier for drag interaction
-            ROTATION_SPEED: 2,
-            
-            // Scale multiplier for pinch interaction
-            PINCH_SPEED: 0.02,
-            
-            // Model bounds adjustment (for centering)
-            BOUNDS_PADDING: 0.1,
-        };
+    const CONFIG = {
+        INITIAL_SCALE: 1.0,
+        ROTATION_SPEED: 0.5,
+        PINCH_SPEED: 0.02,
+        MIN_SCALE: 0.1,
+        MAX_SCALE: 5.0,
+    };
 
-        // State tracking
-        const STATE = {
-            modelLoaded: false,
-            isTracking: false,
-            currentScale: CONFIG.INITIAL_SCALE,
-            currentRotationY: 0,
-            lastTouchDistance: 0,
-            lastMouseX: 0,
-            lastMouseY: 0,
-            isDragging: false,
-            modelEntity: null,
-            containerEntity: null,
-            scene: null,
-        };
+    const STATE = {
+        modelLoaded: false,
+        isTracking: false,
+        currentScale: CONFIG.INITIAL_SCALE,
+        currentRotationY: 0,
+        lastTouchDistance: 0,
+        lastMouseX: 0,
+        isDragging: false,
+        arStarted: false,
+    };
 
-        // ============================================================================
-        // UTILITY FUNCTIONS
-        // ============================================================================
+    function debugLog(msg, type = 'info') { console.log(`[${type.toUpperCase()}] ${msg}`); }
+    function setARStatus(text, cls) {
+        const el = document.getElementById('ar-status');
+        if (el) { el.textContent = text; el.className = `status-${cls}`; }
+    }
+    function setTrackStatus(text, cls) {
+        const el = document.getElementById('track-status');
+        if (el) { el.textContent = text; el.className = `status-${cls}`; }
+    }
+    function setModelStatus(text, cls) {
+        const el = document.getElementById('model-status');
+        if (el) { el.textContent = text; el.className = `status-${cls}`; }
+    }
+    function updateScaleDisplay() {
+        const el = document.getElementById('scale-display');
+        if (el) el.textContent = STATE.currentScale.toFixed(2) + 'x';
+    }
+    function updateRotationDisplay() {
+        const el = document.getElementById('rotation-display');
+        if (el) el.textContent = Math.round(STATE.currentRotationY) + '°';
+    }
 
-        function debugLog(message, type = 'info') {
-            console.log(`[${type.toUpperCase()}] ${message}`);
+    function showSpinner(msg) {
+        const s = document.getElementById('loading-spinner');
+        if (s) {
+            s.style.display = 'flex';
+            const t = s.querySelector('div:last-child');
+            if (t && msg) t.textContent = msg;
         }
+    }
+    function hideSpinner() {
+        const s = document.getElementById('loading-spinner');
+        if (s) { s.style.opacity = '0'; setTimeout(() => { s.style.display = 'none'; s.style.opacity = '1'; }, 500); }
+    }
+    function showScanning() { document.getElementById('scanning-overlay').style.display = 'flex'; }
+    function hideScanning() { document.getElementById('scanning-overlay').style.display = 'none'; }
 
-        function updateDebugUI(status, message) {
-            const trackStatus = document.getElementById('track-status');
-            if (trackStatus) {
-                trackStatus.textContent = message;
-                trackStatus.className = `status-${status}`;
-            }
-        }
+    // ============================================================
+    // MODEL CENTERING / SCALING
+    // ============================================================
+    function initializeModel() {
+        const modelEl = document.getElementById('pizzaModel');
+        if (!modelEl) { setModelStatus('Element missing', 'error'); return; }
 
-        function updateModelStatus(message) {
-            const modelStatus = document.getElementById('model-status');
-            if (modelStatus) {
-                modelStatus.textContent = message;
-            }
-        }
+        const tryInit = () => {
+            const model = modelEl.getObject3D('mesh');
+            if (!model) { setTimeout(tryInit, 300); return; }
 
-        function updateScaleDisplay() {
-            const scaleDisplay = document.getElementById('scale-display');
-            if (scaleDisplay) {
-                scaleDisplay.textContent = STATE.currentScale.toFixed(2) + 'x';
-            }
-        }
-
-        function updateRotationDisplay() {
-            const rotDisplay = document.getElementById('rotation-display');
-            if (rotDisplay) {
-                rotDisplay.textContent = Math.round(STATE.currentRotationY) + '°';
-            }
-        }
-
-        // ============================================================================
-        // MODEL LOADING & AUTO-CENTERING
-        // ============================================================================
-
-        function calculateModelBounds(model) {
-            // Calculate bounding box of the model
-            const box = new THREE.Box3().setFromObject(model);
-            
-            const size = box.getSize(new THREE.Vector3());
-            const center = box.getCenter(new THREE.Vector3());
-
-            debugLog(`Model bounds - Size: (${size.x.toFixed(3)}, ${size.y.toFixed(3)}, ${size.z.toFixed(3)})`, 'info');
-            debugLog(`Model center: (${center.x.toFixed(3)}, ${center.y.toFixed(3)}, ${center.z.toFixed(3)})`, 'info');
-
-            return { size, center, box };
-        }
-
-        function autoScaleModel(model, bounds) {
-            // Auto-fit model to reasonable screen size
-            // Target: model should be roughly 50-70% of screen width
-            const maxDimension = Math.max(bounds.size.x, bounds.size.y, bounds.size.z);
-            
-            if (maxDimension > 0) {
-                // Calculate scale to fit in reasonable bounds (e.g., 2 units)
-                const targetSize = 1.5;
-                const scaleMultiplier = targetSize / maxDimension;
-                
-                model.scale.multiplyScalar(scaleMultiplier);
-                
-                debugLog(`Auto-scale applied: ${scaleMultiplier.toFixed(3)}x`, 'info');
-                return scaleMultiplier;
-            }
-            
-            return 1.0;
-        }
-
-        function centerModel(model, bounds) {
-            // Move model so its center is at origin
-            // This ensures it rotates around its center, not an arbitrary point
-            
-            const center = bounds.center.clone();
-            
-            // Offset the model geometry to center it
-            model.position.sub(center);
-            
-            debugLog(`Model centered at origin`, 'info');
-        }
-
-        function initializeModel() {
-            const modelElement = document.getElementById('pizzaModel');
-            
-            if (!modelElement) {
-                debugLog('Pizza model element not found', 'error');
-                updateModelStatus('❌ Model element not found');
-                return;
-            }
-
-            // Wait for model to be loaded by A-Frame
-            modelElement.addEventListener('model-loaded', function() {
-                debugLog('Model loaded event triggered', 'info');
-                
-                try {
-                    // Get the THREE.js object
-                    const model = modelElement.getObject3D('mesh');
-                    
-                    if (!model) {
-                        debugLog('Model mesh not available immediately, retrying...', 'warning');
-                        setTimeout(initializeModel, 500);
-                        return;
-                    }
-
-                    debugLog('Model mesh retrieved successfully', 'info');
-
-                    // Calculate bounds
-                    const bounds = calculateModelBounds(model);
-
-                    // Center the model
-                    centerModel(model, bounds);
-
-                    // Auto-scale based on model size
-                    const scale = autoScaleModel(model, bounds);
-                    STATE.currentScale = scale * CONFIG.INITIAL_SCALE;
-
-                    // Update A-Frame entity scale to match
-                    const containerEntity = document.getElementById('model-container');
-                    if (containerEntity) {
-                        containerEntity.setAttribute('scale', {
-                            x: STATE.currentScale,
-                            y: STATE.currentScale,
-                            z: STATE.currentScale
-                        });
-                    }
-
-                    STATE.modelLoaded = true;
-                    updateModelStatus('✅ Loaded and ready');
-                    updateScaleDisplay();
-
-                    debugLog('Model initialization complete', 'info');
-
-                } catch (error) {
-                    debugLog(`Error during model initialization: ${error.message}`, 'error');
-                    updateModelStatus(`❌ Error: ${error.message}`);
-                }
-            });
-
-            // Fallback timeout if event doesn't fire
-            setTimeout(() => {
-                if (!STATE.modelLoaded) {
-                    debugLog('Model loading timeout - attempting manual initialization', 'warning');
-                    const model = modelElement.getObject3D('mesh');
-                    if (model) {
-                        const bounds = calculateModelBounds(model);
-                        centerModel(model, bounds);
-                        const scale = autoScaleModel(model, bounds);
-                        STATE.currentScale = scale * CONFIG.INITIAL_SCALE;
-                        
-                        const containerEntity = document.getElementById('model-container');
-                        if (containerEntity) {
-                            containerEntity.setAttribute('scale', {
-                                x: STATE.currentScale,
-                                y: STATE.currentScale,
-                                z: STATE.currentScale
-                            });
-                        }
-                        
-                        STATE.modelLoaded = true;
-                        updateModelStatus('✅ Loaded (manual init)');
-                    }
-                }
-            }, 3000);
-        }
-
-        // ============================================================================
-        // TOUCH & INTERACTION HANDLERS
-        // ============================================================================
-
-        function getTouchDistance(touches) {
-            if (touches.length < 2) return 0;
-            
-            const dx = touches[0].clientX - touches[1].clientX;
-            const dy = touches[0].clientY - touches[1].clientY;
-            
-            return Math.sqrt(dx * dx + dy * dy);
-        }
-
-        function applyModelTransforms() {
-            const containerEntity = document.getElementById('model-container');
-            if (!containerEntity) return;
-
-            // Apply scale
-            containerEntity.setAttribute('scale', {
-                x: STATE.currentScale,
-                y: STATE.currentScale,
-                z: STATE.currentScale
-            });
-
-            // Apply rotation (around Y axis)
-            containerEntity.setAttribute('rotation', {
-                x: 0,
-                y: STATE.currentRotationY,
-                z: 0
-            });
-        }
-
-        // Touch events
-        document.addEventListener('touchstart', (e) => {
-            if (e.touches.length === 2) {
-                // Two-finger pinch start
-                STATE.lastTouchDistance = getTouchDistance(e.touches);
-            } else if (e.touches.length === 1) {
-                // One-finger drag start
-                STATE.isDragging = true;
-                STATE.lastMouseX = e.touches[0].clientX;
-                STATE.lastMouseY = e.touches[0].clientY;
-            }
-        });
-
-        document.addEventListener('touchmove', (e) => {
-            if (e.touches.length === 2) {
-                // Two-finger pinch
-                e.preventDefault();
-                
-                const currentDistance = getTouchDistance(e.touches);
-                const distanceDelta = currentDistance - STATE.lastTouchDistance;
-
-                // Scale based on pinch distance
-                STATE.currentScale += distanceDelta * CONFIG.PINCH_SPEED;
-                
-                // Clamp scale between reasonable bounds
-                STATE.currentScale = Math.max(0.1, Math.min(10, STATE.currentScale));
-
-                applyModelTransforms();
-                updateScaleDisplay();
-
-                STATE.lastTouchDistance = currentDistance;
-
-            } else if (e.touches.length === 1 && STATE.isDragging) {
-                // One-finger drag rotate
-                e.preventDefault();
-                
-                const currentX = e.touches[0].clientX;
-                const dx = currentX - STATE.lastMouseX;
-
-                // Rotate based on horizontal drag
-                STATE.currentRotationY += dx * CONFIG.ROTATION_SPEED;
-
-                // Keep rotation in 0-360 range
-                STATE.currentRotationY = STATE.currentRotationY % 360;
-
-                applyModelTransforms();
-                updateRotationDisplay();
-
-                STATE.lastMouseX = currentX;
-            }
-        });
-
-        document.addEventListener('touchend', (e) => {
-            if (e.touches.length < 2) {
-                STATE.lastTouchDistance = 0;
-            }
-            if (e.touches.length === 0) {
-                STATE.isDragging = false;
-            }
-        });
-
-        // ============================================================================
-        // ARSCENE EVENT HANDLERS
-        // ============================================================================
-
-        const scene = document.getElementById('scene');
-
-        scene.addEventListener('arReady', () => {
-            debugLog('AR scene ready', 'info');
-            
-            // Hide loading spinner
-            const spinner = document.getElementById('loading-spinner');
-            if (spinner) spinner.style.display = 'none';
-
-            // Initialize model loading
-            initializeModel();
-        });
-
-        scene.addEventListener('arError', (event) => {
-            debugLog(`AR error: ${event.detail.error}`, 'error');
-            updateDebugUI('error', `AR Error: ${event.detail.error}`);
-        });
-
-        scene.addEventListener('targetFound', (event) => {
-            debugLog('Target found!', 'info');
-            STATE.isTracking = true;
-            updateDebugUI('ok', '✅ Target tracked');
-            
-            // Optionally show debug box
-            const debugBox = document.getElementById('debug-box');
-            if (debugBox && !STATE.modelLoaded) {
-                debugBox.setAttribute('visible', 'true');
-                debugLog('Debug box visible', 'info');
-            }
-        });
-
-        scene.addEventListener('targetLost', (event) => {
-            debugLog('Target lost', 'warning');
-            STATE.isTracking = false;
-            updateDebugUI('warning', '⏸ Target lost');
-            
-            const debugBox = document.getElementById('debug-box');
-            if (debugBox) {
-                debugBox.setAttribute('visible', 'false');
-            }
-        });
-
-        // ============================================================================
-        // INITIALIZATION & CLEANUP
-        // ============================================================================
-
-        // Exit button
-        document.getElementById('close-btn').addEventListener('click', () => {
-            if (confirm('Exit AR experience?')) {
-                window.history.back();
-            }
-        });
-
-        // Prevent unwanted scrolling
-        document.addEventListener('touchmove', (e) => {
-            if (e.target.tagName !== 'A') {
-                // Allow some scrolling for debug UI, but not for the main scene
-                const debugUI = document.getElementById('debug-ui');
-                const controlsUI = document.getElementById('controls-ui');
-                
-                if (!e.target.closest('#debug-ui') && 
-                    !e.target.closest('#controls-ui') &&
-                    !e.target.closest('.close-btn')) {
-                    e.preventDefault();
-                }
-            }
-        }, { passive: false });
-
-        // Prevent pinch zoom
-        document.addEventListener('wheel', (e) => {
-            if (e.ctrlKey) {
-                e.preventDefault();
-            }
-        }, { passive: false });
-
-        // Start button for camera permission
-        document.getElementById('start-btn').addEventListener('click', async () => {
-            const btn = document.getElementById('start-btn');
-            btn.textContent = 'Starting...';
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-                // Keep stream alive - don't stop it
-                window.arCameraStream = stream;
-                document.getElementById('start-overlay').style.opacity = '0';
-                setTimeout(() => {
-                    document.getElementById('start-overlay').style.display = 'none';
-                }, 400);
-                // Now trigger MindAR
-                const scene = document.getElementById('scene');
-                if (scene && scene.components && scene.components['mindar-image-system']) {
-                    scene.components['mindar-image-system'].start();
-                } else {
-                    // Fallback: reload page so scene initializes with permission granted
-                    window.location.reload();
+                const box = new THREE.Box3().setFromObject(model);
+                const size = box.getSize(new THREE.Vector3());
+                const center = box.getCenter(new THREE.Vector3());
+
+                // Center geometry
+                model.traverse((o) => {
+                    if (o.isMesh && o.geometry) {
+                        o.geometry.translate(-center.x, -center.y, -center.z);
+                    }
+                });
+
+                // Auto-scale to ~1.5 units max dimension
+                const maxDim = Math.max(size.x, size.y, size.z);
+                let scale = CONFIG.INITIAL_SCALE;
+                if (maxDim > 0) {
+                    scale = (1.5 / maxDim) * CONFIG.INITIAL_SCALE;
                 }
+                STATE.currentScale = scale;
+
+                const container = document.getElementById('model-container');
+                if (container) {
+                    container.setAttribute('scale', `${scale} ${scale} ${scale}`);
+                }
+
+                STATE.modelLoaded = true;
+                setModelStatus('Loaded', 'ok');
+                updateScaleDisplay();
+                debugLog(`Model ready, scale=${scale.toFixed(3)}, size=${size.x.toFixed(2)}x${size.y.toFixed(2)}x${size.z.toFixed(2)}`, 'info');
             } catch (e) {
-                btn.textContent = 'Camera denied — tap again';
-                debugLog('Camera permission denied: ' + e.message, 'error');
-                alert('Camera access required. Please allow camera and tap again.');
+                setModelStatus(`Error: ${e.message}`, 'error');
+                debugLog(`Model init error: ${e.message}`, 'error');
             }
+        };
+
+        modelEl.addEventListener('model-loaded', () => {
+            debugLog('model-loaded event fired', 'info');
+            tryInit();
         });
 
-        debugLog('WebAR Menu initialized', 'info');
+        // Fallback: try anyway after 3s
+        setTimeout(() => { if (!STATE.modelLoaded) { debugLog('Manual model init', 'warning'); tryInit(); } }, 3000);
+    }
+
+    // ============================================================
+    // TOUCH INTERACTION
+    // ============================================================
+    function getTouchDistance(touches) {
+        if (touches.length < 2) return 0;
+        const dx = touches[0].clientX - touches[1].clientX;
+        const dy = touches[0].clientY - touches[1].clientY;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+    function applyModelTransforms() {
+        const c = document.getElementById('model-container');
+        if (!c) return;
+        c.setAttribute('scale', `${STATE.currentScale} ${STATE.currentScale} ${STATE.currentScale}`);
+        c.setAttribute('rotation', `0 ${STATE.currentRotationY} 0`);
+    }
+
+    document.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 2) {
+            STATE.lastTouchDistance = getTouchDistance(e.touches);
+        } else if (e.touches.length === 1) {
+            STATE.isDragging = true;
+            STATE.lastMouseX = e.touches[0].clientX;
+        }
+    }, { passive: true });
+
+    document.addEventListener('touchmove', (e) => {
+        if (e.touches.length === 2) {
+            e.preventDefault();
+            const d = getTouchDistance(e.touches);
+            const delta = d - STATE.lastTouchDistance;
+            STATE.currentScale = Math.max(CONFIG.MIN_SCALE, Math.min(CONFIG.MAX_SCALE, STATE.currentScale + delta * CONFIG.PINCH_SPEED));
+            applyModelTransforms();
+            updateScaleDisplay();
+            STATE.lastTouchDistance = d;
+        } else if (e.touches.length === 1 && STATE.isDragging) {
+            e.preventDefault();
+            const dx = e.touches[0].clientX - STATE.lastMouseX;
+            STATE.currentRotationY = (STATE.currentRotationY + dx * CONFIG.ROTATION_SPEED) % 360;
+            applyModelTransforms();
+            updateRotationDisplay();
+            STATE.lastMouseX = e.touches[0].clientX;
+        }
+    }, { passive: false });
+
+    document.addEventListener('touchend', (e) => {
+        if (e.touches.length < 2) STATE.lastTouchDistance = 0;
+        if (e.touches.length === 0) STATE.isDragging = false;
+    });
+
+    // ============================================================
+    // SCENE EVENTS
+    // ============================================================
+    const sceneEl = document.getElementById('scene');
+
+    sceneEl.addEventListener('arReady', () => {
+        debugLog('arReady fired — camera is now streaming', 'info');
+        setARStatus('AR ready', 'ok');
+        hideSpinner();
+        showScanning();
+        initializeModel();
+    });
+
+    sceneEl.addEventListener('arError', (e) => {
+        debugLog(`arError: ${JSON.stringify(e.detail)}`, 'error');
+        setARStatus(`Error: ${e.detail?.error || 'unknown'}`, 'error');
+        hideSpinner();
+        alert('AR failed to start. Error: ' + (e.detail?.error || 'unknown') + '\n\nPlease reload the page and try again.');
+    });
+
+    // Target found/lost — note: these events fire on the a-entity with mindar-image-target
+    const targetEl = document.querySelector('[mindar-image-target]');
+    if (targetEl) {
+        targetEl.addEventListener('targetFound', () => {
+            debugLog('targetFound', 'info');
+            STATE.isTracking = true;
+            setTrackStatus('Tracked', 'ok');
+            hideScanning();
+            const db = document.getElementById('debug-box');
+            if (db) db.setAttribute('visible', 'true');
+        });
+        targetEl.addEventListener('targetLost', () => {
+            debugLog('targetLost', 'warning');
+            STATE.isTracking = false;
+            setTrackStatus('Lost', 'warning');
+            showScanning();
+            const db = document.getElementById('debug-box');
+            if (db) db.setAttribute('visible', 'false');
+        });
+    }
+
+    // ============================================================
+    // START BUTTON — KEY FIX
+    // ============================================================
+    // Do NOT call getUserMedia ourselves. MindAR owns the camera.
+    // The click on this button IS the user gesture MindAR needs.
+    document.getElementById('start-btn').addEventListener('click', async () => {
+        const btn = document.getElementById('start-btn');
+        btn.disabled = true;
+        btn.textContent = 'Starting…';
+        setARStatus('Starting…', 'warning');
+        showSpinner('Requesting camera…');
+
+        // Hide the start overlay (user gesture still active in this stack frame)
+        const overlay = document.getElementById('start-overlay');
+        overlay.style.opacity = '0';
+        setTimeout(() => { overlay.style.display = 'none'; }, 400);
+
+        // Give the DOM a tick to update, then start MindAR
+        await new Promise(r => setTimeout(r, 100));
+
+        try {
+            const sys = sceneEl.components['mindar-image-system'];
+            if (sys && typeof sys.start === 'function') {
+                debugLog('Calling mindar-image-system.start()', 'info');
+                sys.start();
+            } else {
+                // Component may not be initialized yet; wait and retry
+                let tries = 0;
+                const wait = setInterval(() => {
+                    const s = sceneEl.components['mindar-image-system'];
+                    if (s && typeof s.start === 'function') {
+                        clearInterval(wait);
+                        debugLog('Late start of mindar-image-system', 'info');
+                        s.start();
+                    } else if (++tries > 50) {
+                        clearInterval(wait);
+                        setARStatus('System unavailable', 'error');
+                        hideSpinner();
+                        alert('MindAR system not available. Reloading…');
+                        window.location.reload();
+                    }
+                }, 100);
+            }
+        } catch (err) {
+            debugLog(`Start failed: ${err.message}`, 'error');
+            setARStatus(`Error: ${err.message}`, 'error');
+            hideSpinner();
+            alert('Failed to start AR: ' + err.message);
+        }
+
+        // Safety net: if arReady doesn't fire in 20s, show a helpful error
+        setTimeout(() => {
+            if (!sceneEl.getAttribute('data-ar-ready')) {
+                debugLog('arReady timeout', 'error');
+                setARStatus('Timeout', 'error');
+                hideSpinner();
+            }
+        }, 20000);
+    });
+
+    // Mark AR ready for safety-net check
+    sceneEl.addEventListener('arReady', () => {
+        sceneEl.setAttribute('data-ar-ready', 'true');
+    });
+
+    // ============================================================
+    // EXIT
+    // ============================================================
+    document.getElementById('close-btn').addEventListener('click', () => {
+        if (confirm('Exit AR experience?')) {
+            try {
+                const sys = sceneEl.components['mindar-image-system'];
+                if (sys && typeof sys.stop === 'function') sys.stop();
+            } catch (e) {}
+            window.history.back();
+        }
+    });
+
+    // Prevent page scroll/zoom interference
+    document.addEventListener('wheel', (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
+    document.addEventListener('gesturestart', (e) => e.preventDefault());
+
+    debugLog('WebAR Pizza initialized. Tap Start to begin.', 'info');
     </script>
 </body>
 </html>
