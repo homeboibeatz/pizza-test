@@ -626,25 +626,17 @@
         }, { passive: false });
 
         // Start button for camera permission
-        document.getElementById('start-btn').addEventListener('click', async () => {
+        document.getElementById('start-btn').addEventListener('click', () => {
             const btn = document.getElementById('start-btn');
             btn.textContent = 'Starting...';
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-                stream.getTracks().forEach(t => t.stop());
-                document.getElementById('start-overlay').style.opacity = '0';
-                setTimeout(() => {
-                    document.getElementById('start-overlay').style.display = 'none';
-                }, 400);
-                // Trigger AR scene initialization manually if needed
-                const scene = document.getElementById('scene');
-                if (scene && scene.components['mindar-image-system']) {
-                    scene.components['mindar-image-system'].start();
-                }
-            } catch (e) {
-                btn.textContent = 'Camera denied — tap again';
-                debugLog('Camera permission denied: ' + e.message, 'error');
-                alert('Camera access is required for AR. Please allow camera permission and try again.');
+            document.getElementById('start-overlay').style.opacity = '0';
+            setTimeout(() => {
+                document.getElementById('start-overlay').style.display = 'none';
+            }, 400);
+            // Let MindAR handle camera access on user gesture
+            const scene = document.getElementById('scene');
+            if (scene && scene.components && scene.components['mindar-image-system']) {
+                scene.components['mindar-image-system'].start();
             }
         });
 
