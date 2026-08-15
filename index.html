@@ -3,42 +3,52 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Pizza AR Diagnostic</title>
+    <title>Pizza AR Menu</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: monospace; }
+        html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: -apple-system, sans-serif; }
         a-scene { width: 100% !important; height: 100% !important; }
         .mindar-ui-overlay { display: none !important; }
 
-        #overlay {
+        .overlay {
             position: fixed; inset: 0; display: flex; flex-direction: column;
             align-items: center; justify-content: center; z-index: 100;
-            color: #fff; text-align: center; padding: 20px; background: rgba(0,0,0,0.85);
+            color: #fff; text-align: center; padding: 20px;
         }
-        .btn { padding: 14px 32px; background: #ff6b35; color: #fff; border: none; border-radius: 50px; font-size: 17px; cursor: pointer; margin-top: 20px; }
-        
-        /* Diagnostic Log Screen */
-        #log-screen {
-            position: fixed; bottom: 0; left: 0; right: 0; height: 40%;
-            background: rgba(0,0,0,0.9); color: #0f0; padding: 15px;
-            font-size: 12px; overflow-y: auto; z-index: 500; display: none;
-            border-top: 2px solid #ff6b35; white-space: pre-wrap; word-break: break-all;
-        }
+        #start-overlay { background: rgba(0,0,0,0.95); z-index: 300; }
+        #loading-overlay { background: rgba(0,0,0,0.8); z-index: 200; display: none; }
+        #scanning-overlay { background: rgba(0,0,0,0.2); z-index: 50; display: none; }
+
+        .btn { padding: 14px 32px; background: #ff6b35; color: #fff; border: none; border-radius: 50px; font-size: 17px; font-weight: bold; cursor: pointer; margin-top: 20px; }
+        .spinner { width: 60px; height: 60px; border: 5px solid rgba(255,255,255,0.2); border-top: 5px solid #ff6b35; border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        #error-msg { color: #ff4444; margin-top: 15px; font-weight: bold; max-width: 350px; }
     </style>
 </head>
 <body>
-    <div id="overlay">
-        <h2>🍕 Pizza AR Menu</h2>
-        <p id="status-text">Checking browser compatibility...</p>
-        <button id="start-btn" class="btn" style="display:none;">Start AR Camera</button>
+    <div id="start-overlay" class="overlay">
+        <h1>🍕 Pizza AR Menu</h1>
+        <p>Point your camera at the pizza menu image to see the 3D pizza model appear.</p>
+        <button id="start-btn" class="btn">Start AR Camera</button>
+        <div id="error-msg"></div>
     </div>
 
-    <div id="log-screen" id="log"></div>
+    <div id="loading-overlay" class="overlay">
+        <div class="spinner"></div>
+        <p style="margin-top: 15px;">Starting AR camera…</p>
+    </div>
 
+    <div id="scanning-overlay" class="overlay">
+        <h2>Scanning…</h2>
+        <p>Point camera at the pizza menu image</p>
+    </div>
+
+    <!-- A-Frame Scene (Notice mindar-image is MISSING here. We add it on click) -->
     <a-scene 
-        mindar-image="imageTargetSrc: targets.mind; autoStart: false;"
+        color-space="sRGB"
         renderer="antialias: true; colorManagement: true;"
         vr-mode-ui="enabled: false"
+        device-orientation-permission-ui="enabled: false"
         loading-screen="enabled: false"
         embedded
         style="width: 100%; height: 100%;">
@@ -60,92 +70,50 @@
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 
     <script>
-        // 1. Setup Diagnostic Logger
-        const logScreen = document.getElementById('log-screen');
-        const statusText = document.getElementById('status-text');
-        const startBtn = document.getElementById('start-btn');
-        const overlay = document.getElementById('overlay');
-
-        function log(msg) {
-            console.log(msg);
-            logScreen.style.display = 'block';
-            logScreen.innerHTML += msg + '\n';
-            logScreen.scrollTop = logScreen.scrollHeight;
-        }
-
-        log("1. Script loaded. Checking environment...");
-
-        // 2. Check Secure Context (HTTPS / Localhost)
-        if (!window.isSecureContext) {
-            log("\n❌ FATAL ERROR: NOT A SECURE CONTEXT!");
-            log("You are opening this via HTTP on a phone (e.g., http://192.168.x.x).");
-            log("Browsers block the camera unless you use 'http://localhost' OR 'https://'.");
-            statusText.innerText = "❌ HTTPS Required for Mobile Camera. Check log at bottom.";
-        } else {
-            log("✅ Secure context verified (HTTPS or localhost).");
-            statusText.innerText = "Ready to start.";
-            startBtn.style.display = 'block';
-        }
-
         const sceneEl = document.querySelector('a-scene');
+        const startBtn = document.getElementById('start-btn');
+        const startOverlay = document.getElementById('start-overlay');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const scanningOverlay = document.getElementById('scanning-overlay');
+        const modelContainer = document.getElementById('model-container');
+        const errorMsg = document.getElementById('error-msg');
 
-        // 3. Wait for A-Frame to fully load
-        sceneEl.addEventListener('loaded', () => {
-            log("2. A-Frame scene has fully loaded.");
-            
-            // Check if MindAR registered
-            if (typeof AFRAME !== 'undefined' && AFRAME.systems && AFRAME.systems['mindar-image-system']) {
-                log("✅ MindAR system registered successfully.");
-            } else {
-                log("❌ ERROR: MindAR system NOT found. CDN script failed to load.");
+        startBtn.addEventListener('click', () => {
+            if (window.location.protocol === 'file:') {
+                errorMsg.innerText = 'ERROR: Open via http://localhost:8000';
+                return;
             }
+            if (!window.isSecureContext) {
+                errorMsg.innerText = 'ERROR: Must use HTTPS or localhost';
+                return;
+            }
+
+            startOverlay.style.display = 'none';
+            loadingOverlay.style.display = 'flex';
+
+            // KEY FIX: Inject the mindar-image attribute here.
+            // This forces MindAR to initialize AS a result of your tap, bypassing iOS security blocks.
+            sceneEl.setAttribute('mindar-image', 'imageTargetSrc: targets.mind; maxTrack: 4; filterMinCF: 0.0001; filterBeta: 0.01;');
         });
 
-        // 4. Start Button Logic
-        startBtn.addEventListener('click', async () => {
-            log("3. Start button clicked.");
-            overlay.style.display = 'none';
-            
-            // Wait a moment to ensure DOM is ready
-            await new Promise(r => setTimeout(r, 200));
-
-            // Try to find the system
-            let arSystem = sceneEl.systems['mindar-image-system'];
-            
-            if (!arSystem) {
-                log("❌ Could not find mindar-image-system on scene. Trying again...");
-                await new Promise(r => setTimeout(r, 500));
-                arSystem = sceneEl.systems['mindar-image-system'];
-            }
-
-            if (arSystem) {
-                log("4. Calling arSystem.start()...");
-                try {
-                    await arSystem.start();
-                    log("5. arSystem.start() resolved successfully.");
-                } catch (e) {
-                    log("❌ arSystem.start() threw an error: " + e.message);
-                    overlay.style.display = 'flex';
-                }
-            } else {
-                log("❌ FATAL: MindAR system is completely missing. Cannot start.");
-                overlay.style.display = 'flex';
-                statusText.innerText = "MindAR failed to load. Check internet connection.";
-            }
-        });
-
-        // 5. AR Event Listeners
+        // Listen for AR Ready
         sceneEl.addEventListener('arReady', () => {
-            log("6. 🎉 arReady event fired! Camera should be visible now.");
+            console.log('AR is ready, camera is streaming!');
+            loadingOverlay.style.display = 'none';
+            scanningOverlay.style.display = 'flex';
         });
 
         sceneEl.addEventListener('arError', (event) => {
-            log("❌ arError event fired: " + JSON.stringify(event.detail));
+            console.error('AR Error:', event.detail);
+            loadingOverlay.style.display = 'none';
+            startOverlay.style.display = 'flex';
+            errorMsg.innerText = 'AR Camera Error: ' + (event.detail.error || 'Unknown error');
         });
 
         const targetEl = document.querySelector('[mindar-image-target]');
         targetEl.addEventListener('targetFound', () => {
-            log("7. 🍕 Target Found! Model should be visible.");
+            console.log('Target found!');
+            scanningOverlay.style.display = 'none';
             
             // Auto-center and scale the model
             const modelEl = document.getElementById('pizzaModel');
@@ -162,20 +130,18 @@
                 });
 
                 const maxDim = Math.max(size.x, size.y, size.z);
-                if (maxDim > 0) {
-                    const scale = 1.5 / maxDim;
-                    document.getElementById('model-container').setAttribute('scale', `${scale} ${scale} ${scale}`);
-                }
+                let scale = 1.0;
+                if (maxDim > 0) scale = 1.5 / maxDim;
+                modelContainer.setAttribute('scale', `${scale} ${scale} ${scale}`);
             }
         });
 
         targetEl.addEventListener('targetLost', () => {
-            log("Target lost.");
+            scanningOverlay.style.display = 'flex';
         });
 
-        // 6. Simple Touch Controls
+        // Touch Controls
         let currentRotation = 0, currentScale = 1.0, baseScale = 1.0, isDragging = false, lastX = 0, lastTouchDist = 0;
-        const modelContainer = document.getElementById('model-container');
 
         document.addEventListener('touchstart', (e) => {
             if (e.touches.length === 2) {
