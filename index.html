@@ -1,4 +1,3 @@
-```html
 <!DOCTYPE html>
 <html>
 <head>
@@ -34,6 +33,7 @@
   </style>
 
   <script>
+    // 1. Pinch to Scale Component
     AFRAME.registerComponent("pinch-scale", {
       init: function () {
         const el = this.el;
@@ -83,6 +83,43 @@
         });
       }
     });
+
+    // 2. Drag to Rotate Component
+    AFRAME.registerComponent("drag-rotate", {
+      init: function () {
+        const el = this.el;
+        
+        let isDragging = false;
+        let lastX = 0;
+
+        window.addEventListener("touchstart", (e) => {
+          // Only start dragging if exactly 1 finger is on the screen
+          if (e.touches.length === 1) {
+            isDragging = true;
+            lastX = e.touches[0].clientX;
+          }
+        }, { passive: true });
+
+        window.addEventListener("touchmove", (e) => {
+          // Only rotate if dragging with 1 finger (ignores 2-finger pinch)
+          if (e.touches.length !== 1 || !isDragging) return;
+
+          e.preventDefault();
+
+          const currentX = e.touches[0].clientX;
+          const deltaX = currentX - lastX;
+
+          // Rotate around Y axis. Change 0.01 to make it faster/slower
+          el.object3D.rotation.y += deltaX * 0.01;
+
+          lastX = currentX;
+        }, { passive: false });
+
+        window.addEventListener("touchend", () => {
+          isDragging = false;
+        });
+      }
+    });
   </script>
 </head>
 
@@ -118,6 +155,7 @@
     <a-gltf-model
       id="pizza"
       pinch-scale
+      drag-rotate
       src="#pizzaModel"
       position="0 0 0"
       rotation="0 0 0"
@@ -140,24 +178,3 @@
 
 </body>
 </html>
-```
-
-**If the model is still too small**, increase:
-
-```html
-scale="3 3 3"
-```
-
-to:
-
-```html
-scale="5 5 5"
-```
-
-or
-
-```html
-scale="10 10 10"
-```
-
-depending on how the `pizza.glb` was exported.
