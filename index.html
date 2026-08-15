@@ -626,17 +626,29 @@
         }, { passive: false });
 
         // Start button for camera permission
-        document.getElementById('start-btn').addEventListener('click', () => {
+        document.getElementById('start-btn').addEventListener('click', async () => {
             const btn = document.getElementById('start-btn');
             btn.textContent = 'Starting...';
-            document.getElementById('start-overlay').style.opacity = '0';
-            setTimeout(() => {
-                document.getElementById('start-overlay').style.display = 'none';
-            }, 400);
-            // Let MindAR handle camera access on user gesture
-            const scene = document.getElementById('scene');
-            if (scene && scene.components && scene.components['mindar-image-system']) {
-                scene.components['mindar-image-system'].start();
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                // Keep stream alive - don't stop it
+                window.arCameraStream = stream;
+                document.getElementById('start-overlay').style.opacity = '0';
+                setTimeout(() => {
+                    document.getElementById('start-overlay').style.display = 'none';
+                }, 400);
+                // Now trigger MindAR
+                const scene = document.getElementById('scene');
+                if (scene && scene.components && scene.components['mindar-image-system']) {
+                    scene.components['mindar-image-system'].start();
+                } else {
+                    // Fallback: reload page so scene initializes with permission granted
+                    window.location.reload();
+                }
+            } catch (e) {
+                btn.textContent = 'Camera denied — tap again';
+                debugLog('Camera permission denied: ' + e.message, 'error');
+                alert('Camera access required. Please allow camera and tap again.');
             }
         });
 
