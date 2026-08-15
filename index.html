@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Pizza AR Menu</title>
 
-  <!-- FIX: Scripts moved to <head> as required by A-Frame 1.5.0 -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 
@@ -26,7 +25,7 @@
       backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.15);
       border-radius: 16px; padding: 18px 22px; color: #fff; z-index: 150;
       font-size: 14px; max-width: 260px; pointer-events: none;
-      display: none; /* Hidden until AR is ready */
+      display: none;
     }
     .instruction { color: rgba(255,255,255,0.75); margin-top: 6px; font-size: 13px; }
   </style>
@@ -46,11 +45,9 @@
     <div class="instruction">✌️ Pinch to scale</div>
   </div>
 
-  <!-- A-Frame Scene -->
   <a-scene
     mindar-image="imageTargetSrc: targets.mind; maxTrack: 4;"
     color-space="sRGB"
-    <!-- FIX: Removed physicallyCorrectLights (crashes A-Frame 1.5.0) -->
     renderer="antialias: true; colorManagement: true; sortObjects: true;"
     vr-mode-ui="enabled: false"
     device-orientation-permission-ui="enabled: false"
@@ -58,8 +55,10 @@
     embedded
     style="width: 100%; height: 100%;">
 
-    <a-assets>
-      <a-asset-item id="pizza-model-asset" src="pizza.glb" crossorigin="anonymous"></a-asset-item>
+    <!-- FIX: Increased timeout to 30 seconds so the 6.9MB model has time to download -->
+    <!-- FIX: Removed crossorigin attribute, which can cause false CORS blocks on static hosts -->
+    <a-assets timeout="30000">
+      <a-asset-item id="pizza-model-asset" src="pizza.glb" response-type="arraybuffer"></a-asset-item>
     </a-assets>
 
     <a-camera position="0 0 0" look-controls="enabled: false" wasd-controls="enabled: false"></a-camera>
@@ -79,12 +78,10 @@
 
     let currentRotation = 0, currentScale = 1.0, baseScale = 1.0, isDragging = false, lastX = 0, lastTouchDist = 0;
 
-    // 1. Hide loading screen when scene is loaded
     sceneEl.addEventListener('loaded', () => {
       loadingOverlay.style.display = 'none';
     });
 
-    // 2. Show UI when camera stream begins
     sceneEl.addEventListener('arReady', () => {
       console.log('AR is ready, camera is streaming!');
       controlsUI.style.display = 'block';
@@ -92,10 +89,14 @@
 
     sceneEl.addEventListener('arError', (event) => {
       console.error('AR Error:', event.detail);
-      loadingOverlay.innerHTML = '<h2>❌ AR Error</h2><p>Could not access camera. Please ensure you are using HTTPS or localhost.</p>';
+      // Handle OverconstrainedError gracefully
+      if (event.detail.error === 'VIDEO_FAIL') {
+        loadingOverlay.innerHTML = '<h2>⚠️ Camera Error</h2><p style="margin-top:10px;">Could not access the back camera. If you are on a desktop, please use a mobile device. If on mobile, ensure no other app is using the camera.</p>';
+      } else {
+        loadingOverlay.innerHTML = '<h2>❌ AR Error</h2><p>Please ensure you are using HTTPS or localhost.</p>';
+      }
     });
 
-    // 3. Target Found: Auto-center and scale the model
     const targetEl = document.querySelector('[mindar-image-target]');
     targetEl.addEventListener('targetFound', () => {
       console.log('Target found!');
@@ -120,6 +121,8 @@
           currentScale = scale;
           baseScale = scale;
         }
+      } else {
+        console.warn('Target found, but 3D model is not loaded yet.');
       }
     });
 
@@ -127,7 +130,6 @@
       console.log('Target lost');
     });
 
-    // 4. Touch Controls (Drag to rotate, Pinch to scale)
     document.addEventListener('touchstart', (e) => {
       if (e.touches.length === 2) {
         const dx = e.touches[0].clientX - e.touches[1].clientX;
