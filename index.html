@@ -59,25 +59,96 @@
             z-index: 100;
             pointer-events: none;
         }
+
+        /* Loading spinner */
+        #loading-spinner {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: linear-gradient(135deg, #0a0a2e 0%, #1a1a4e 50%, #0f0f3a 100%);
+            z-index: 200;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.5s ease;
+        }
+        .spinner {
+            width: 60px; height: 60px;
+            border: 5px solid rgba(255,255,255,0.1);
+            border-top: 5px solid #ff6b35;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Controls UI */
+        #controls-ui {
+            position: fixed;
+            top: 20px; right: 20px;
+            background: rgba(0,0,0,0.5);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 16px;
+            padding: 18px 22px;
+            color: #fff;
+            z-index: 150;
+            font-size: 14px;
+            max-width: 260px;
+            pointer-events: none;
+        }
+        .instruction { color: rgba(255,255,255,0.75); margin-top: 6px; font-size: 13px; }
+
+        /* Debug info panel */
+        #debug-ui {
+            position: fixed;
+            top: 20px; left: 20px;
+            background: rgba(0,0,0,0.5);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 12px;
+            padding: 14px 18px;
+            color: #fff;
+            z-index: 150;
+            font-size: 12px;
+            pointer-events: none;
+        }
+        .debug-line { margin-top: 3px; line-height: 1.4; }
+        .status-warning { color: #ffaa00; }
+        .status-ok { color: #28a745; }
+        .status-error { color: #ff4444; }
+
+        /* Close button */
+        .close-btn {
+            position: fixed;
+            bottom: 20px; left: 20px;
+            background: rgba(255,255,255,0.15);
+            border: 1px solid rgba(255,255,255,0.25);
+            color: #fff;
+            padding: 10px 18px;
+            border-radius: 30px;
+            font-size: 13px;
+            cursor: pointer;
+            z-index: 150;
+            backdrop-filter: blur(6px);
+            transition: background 0.2s;
+        }
+        .close-btn:hover { background: rgba(255,255,255,0.3); }
     </style>
 </head>
 <body>
     <!-- A-Frame + MindAR Scene -->
-    <a-scene 
+    <a-scene
         id="scene"
-        mindar-image="imageTargetSrc: targets.mind; maxTrack: 4; warmupCount: 8;"
+        embedded
+        mindar-image="imageTargetSrc: targets.mind; maxTrack: 4; warmupCount: 8; uiLoading: #loading-spinner; uiScanning: #scanning-overlay; filterMinCF: 0.01; filterBeta: 10;"
         color-space="sRGB"
-        renderer="logarithmicDepthBuffer: true; colorManagement: true; sortObjects: true;"
+        renderer="logarithmicDepthBuffer: true; colorManagement: true; sortObjects: true; alpha: true;"
         vr-mode-ui="enabled: false"
-        device-orientation-permission-ui="enabled: false">
+        device-orientation-permission-ui="enabled: false"
+        loading-screen="enabled: false">
         
-        <!-- Camera with appropriate far clipping plane -->
-        <a-camera 
-            position="0 0 0" 
-            look-controls="enabled: false"
-            wasd-controls="enabled: false"
-            far="10000">
-        </a-camera>
+        <!-- Camera -->
+        <a-camera position="0 0 0" look-controls="enabled: false" wasd-controls="enabled: false"></a-camera>
 
         <!-- Image target entity that anchors the content -->
         <a-entity mindar-image-target="targetIndex: 0">
@@ -122,6 +193,23 @@
             </a-asset-item>
         </a-assets>
     </a-scene>
+
+    <!-- Permission / Start overlay -->
+    <div id="start-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(10,10,30,0.9);backdrop-filter:blur(12px);z-index:300;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;text-align:center;padding:30px;transition:opacity 0.4s;">
+        <div style="font-size:28px;margin-bottom:10px;">🍕 Pizza AR Menu</div>
+        <div style="font-size:16px;color:rgba(255,255,255,0.8);margin-bottom:30px;max-width:320px;line-height:1.5;">Point your camera at the pizza menu image to see the 3D pizza model appear.</div>
+        <button id="start-btn" style="padding:14px 32px;background:#ff6b35;color:#fff;border:none;border-radius:50px;font-size:17px;font-weight:bold;cursor:pointer;box-shadow:0 8px 24px rgba(255,107,53,0.3);transition:transform 0.1s,box-shadow 0.2s;">Start AR Camera</button>
+        <div style="margin-top:20px;font-size:12px;color:rgba(255,255,255,0.4);">Requires camera access</div>
+    </div>
+
+    <!-- Scanning overlay -->
+    <div id="scanning-overlay" style="position:fixed;top:0;left:0;right:0;bottom:0;background:#000;z-index:250;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;text-align:center;padding:30px;">
+        <div style="font-size:22px;margin-bottom:12px;">🍕 Pizza AR Menu</div>
+        <div style="font-size:14px;color:rgba(255,255,255,0.7);margin-bottom:30px;">Point camera at the pizza menu image</div>
+        <div style="width:200px;height:200px;border:2px dashed rgba(255,255,255,0.3);border-radius:16px;display:flex;align-items:center;justify-content:center;">
+            <span style="font-size:60px;opacity:0.3;">🍕</span>
+        </div>
+    </div>
 
     <!-- Loading indicator -->
     <div id="loading-spinner">
@@ -536,6 +624,29 @@
                 e.preventDefault();
             }
         }, { passive: false });
+
+        // Start button for camera permission
+        document.getElementById('start-btn').addEventListener('click', async () => {
+            const btn = document.getElementById('start-btn');
+            btn.textContent = 'Starting...';
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                stream.getTracks().forEach(t => t.stop());
+                document.getElementById('start-overlay').style.opacity = '0';
+                setTimeout(() => {
+                    document.getElementById('start-overlay').style.display = 'none';
+                }, 400);
+                // Trigger AR scene initialization manually if needed
+                const scene = document.getElementById('scene');
+                if (scene && scene.components['mindar-image-system']) {
+                    scene.components['mindar-image-system'].start();
+                }
+            } catch (e) {
+                btn.textContent = 'Camera denied — tap again';
+                debugLog('Camera permission denied: ' + e.message, 'error');
+                alert('Camera access is required for AR. Please allow camera permission and try again.');
+            }
+        });
 
         debugLog('WebAR Menu initialized', 'info');
     </script>
