@@ -3,8 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-
-  <title>Pizza AR</title>
+  <title>Restaurant AR Menu</title>
 
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
@@ -18,9 +17,9 @@
       overflow: hidden;
       background: #000;
       touch-action: none;
+      font-family: Arial, sans-serif;
     }
 
-    /* FIX: Force the camera video element to stretch full screen behind the 3D canvas */
     video {
       position: fixed !important;
       top: 0 !important;
@@ -31,7 +30,6 @@
       z-index: 0 !important;
     }
 
-    /* Make sure the 3D scene sits above the video */
     a-scene {
       position: fixed !important;
       top: 0 !important;
@@ -50,16 +48,41 @@
       justify-content: center;
       align-items: center;
       z-index: 9999;
-      font-family: Arial, sans-serif;
+      font-size: 16px;
+    }
+
+    #simple-text {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 13px;
+      z-index: 100;
+      pointer-events: none;
+    }
+
+    #status {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 13px;
+      z-index: 100;
+      background: rgba(0, 0, 0, 0.5);
+      padding: 8px 12px;
+      border-radius: 4px;
+      min-width: 150px;
     }
   </style>
 
   <script>
-    // 1. Pinch to Scale Component
+    // ============================================================
+    // COMPONENT 1: Pinch to Scale
+    // ============================================================
     AFRAME.registerComponent("pinch-scale", {
       init: function () {
         const el = this.el;
-
         let startDistance = 0;
         let startScale = el.object3D.scale.x;
 
@@ -73,7 +96,6 @@
           "touchmove",
           (e) => {
             if (e.touches.length !== 2) return;
-
             e.preventDefault();
 
             const distance = getDistance(e.touches);
@@ -85,17 +107,9 @@
             }
 
             const scale = startScale * (distance / startDistance);
+            const clampedScale = Math.max(0.5, Math.min(scale, 20));
 
-            const clampedScale = Math.max(
-              0.5,
-              Math.min(scale, 20)
-            );
-
-            el.object3D.scale.set(
-              clampedScale,
-              clampedScale,
-              clampedScale
-            );
+            el.object3D.scale.set(clampedScale, clampedScale, clampedScale);
           },
           { passive: false }
         );
@@ -106,11 +120,12 @@
       }
     });
 
-    // 2. Drag to Rotate Component
+    // ============================================================
+    // COMPONENT 2: Drag to Rotate
+    // ============================================================
     AFRAME.registerComponent("drag-rotate", {
       init: function () {
         const el = this.el;
-        
         let isDragging = false;
         let lastX = 0;
 
@@ -123,19 +138,113 @@
 
         window.addEventListener("touchmove", (e) => {
           if (e.touches.length !== 1 || !isDragging) return;
-
           e.preventDefault();
 
           const currentX = e.touches[0].clientX;
           const deltaX = currentX - lastX;
-
           el.object3D.rotation.y += deltaX * 0.01;
-
           lastX = currentX;
         }, { passive: false });
 
         window.addEventListener("touchend", () => {
           isDragging = false;
+        });
+      }
+    });
+
+    // ============================================================
+    // COMPONENT 3: Smooth Tracking (Reduces Jitter/Stutter)
+    // ============================================================
+    AFRAME.registerComponent('smooth-tracking', {
+      schema: {
+        smoothness: { type: 'number', default: 0.1 }
+      },
+
+      init: function() {
+        const el = this.el;
+        const smoothness = this.data.smoothness;
+        
+        let lastPosition = new THREE.Vector3(0, 0, 0.3);
+        let lastRotation = new THREE.Euler(0, 0, 0);
+
+        const originalSetAttribute = el.setAttribute.bind(el);
+        el.setAttribute = function(attr, value) {
+          if (attr === 'position' && typeof value === 'object') {
+            const current = el.object3D.position;
+            value = {
+              x: current.x + (value.x - current.x) * smoothness,
+              y: current.y + (value.y - current.y) * smoothness,
+              z: current.z + (value.z - current.z) * smoothness
+            };
+          }
+          return originalSetAttribute(attr, value);
+        };
+      }
+    });
+
+    // ============================================================
+    // COMPONENT 4: Model Persistence (Keep showing when target lost)
+    // ============================================================
+    AFRAME.registerComponent('persist-model', {
+      init: function() {
+        const el = this.el;
+        let lastGoodPosition = new THREE.Vector3(0, 0, 0.3);
+        let lastGoodRotation = new THREE.Euler(0, 0, 0);
+        let isTracking = false;
+
+        const scene = document.querySelector('a-scene');
+
+        scene.addEventListener('targetFound', () => {
+          isTracking = true;
+        });
+
+        scene.addEventListener('targetLost', () => {
+          isTracking = false;
+        });
+
+        const updatePosition = () => {
+          if (isTracking) {
+            lastGoodPosition.copy(el.object3D.position);
+            lastGoodRotation.copy(el.object3D.rotation);
+          } else {
+            el.object3D.position.copy(lastGoodPosition);
+            el.object3D.rotation.copy(lastGoodRotation);
+          }
+          requestAnimationFrame(updatePosition);
+        };
+
+        updatePosition();
+      }
+    });
+
+    // ============================================================
+    // COMPONENT 5: Auto Scale Based on Model Bounds
+    // ============================================================
+    AFRAME.registerComponent('auto-scale-model', {
+      schema: {
+        targetWidth: { type: 'number', default: 1.5 }
+      },
+
+      init: function() {
+        const el = this.el;
+        const targetWidth = this.data.targetWidth;
+
+        el.addEventListener('model-loaded', () => {
+          try {
+            const mesh = el.getObject3D('mesh');
+            if (!mesh) return;
+
+            const box = new THREE.Box3().setFromObject(mesh);
+            const size = box.getSize(new THREE.Vector3());
+
+            if (size.x > 0) {
+              const scaleNeeded = targetWidth / size.x;
+              el.object3D.scale.set(scaleNeeded, scaleNeeded, scaleNeeded);
+              console.log(`✅ Model auto-scaled to: ${scaleNeeded.toFixed(3)}`);
+            }
+          } catch (e) {
+            console.error('Auto-scale error:', e);
+          }
         });
       }
     });
@@ -145,56 +254,243 @@
 <body>
 
 <div id="loading">
-  Loading AR Experience...
+  Loading AR Menu...
 </div>
 
+<div id="simple-text">
+  Scan a menu item target image
+</div>
+
+<div id="status">
+  Initializing...
+</div>
+
+<!-- Main A-Frame Scene -->
 <a-scene
-  mindar-image="imageTargetSrc: ./targets.mind;"
+  mindar-image="imageTargetSrc: ./targets.mind; maxTrack: 4;"
   color-space="sRGB"
-  <!-- FIX: Added alpha: true so the 3D canvas is transparent and shows the camera behind it -->
   renderer="alpha: true; colorManagement: true;"
   vr-mode-ui="enabled: false"
   device-orientation-permission-ui="enabled: false"
   loading-screen="enabled: false"
   embedded
+  id="ar-scene"
 >
 
-  <a-assets>
-    <a-asset-item
-      id="pizzaModel"
-      src="./pizza.glb">
-    </a-asset-item>
-  </a-assets>
+  <!-- All assets loaded here dynamically -->
+  <a-assets id="model-assets"></a-assets>
 
   <a-camera
     position="0 0 0"
     look-controls="enabled: false">
   </a-camera>
 
-  <a-entity mindar-image-target="targetIndex: 0">
-
-    <a-gltf-model
-      id="pizza"
-      pinch-scale
-      drag-rotate
-      src="#pizzaModel"
-      position="0 0 0"
-      rotation="0 0 0"
-      scale="3 3 3">
-    </a-gltf-model>
-
-  </a-entity>
+  <!-- All target entities generated here dynamically -->
+  <div id="targets-container"></div>
 
 </a-scene>
 
 <script>
-  document.addEventListener("DOMContentLoaded", () => {
-    const scene = document.querySelector("a-scene");
+  // ============================================================
+  // MULTI-TARGET MAPPING
+  // ============================================================
+  // Map targetIndex (from targets.mind) to model name
+  // 
+  // targets.mind structure (generated from your target images):
+  // - Target Index 0: first image uploaded
+  // - Target Index 1: second image uploaded
+  // - Target Index 2: third image uploaded
+  // - etc.
+  //
+  // When generating targets.mind, make note of the order you uploaded images
+  // Then create this mapping accordingly
+  //
+  // Example:
+  // Uploaded pizza.jpg first → Index 0 → 'pizza'
+  // Uploaded burger.jpg second → Index 1 → 'burger'
+  // Uploaded salad.jpg third → Index 2 → 'salad'
+  //
 
-    scene.addEventListener("loaded", () => {
-      document.getElementById("loading").style.display = "none";
+  const TARGET_MAPPING = {
+    0: 'burger',           // Target Image 0 → pizza.glb
+    1: 'pizza',          // Target Image 1 → burger.glb
+    // Add more mappings as needed - up to 30+
+    // 6: 'soup',
+    // 7: 'appetizer',
+    // 8: 'steak',
+    // ... etc
+  };
+
+  // ============================================================
+  // DYNAMIC ENTITY GENERATION
+  // ============================================================
+
+  let loadedModels = 0;
+  const totalModels = Object.keys(TARGET_MAPPING).length;
+  let currentlyTrackedTarget = null;
+
+  function updateStatus(message) {
+    const statusEl = document.getElementById('status');
+    if (statusEl) {
+      statusEl.textContent = message;
+    }
+  }
+
+  function createTargetEntities() {
+    const assetsContainer = document.getElementById('model-assets');
+    const scene = document.getElementById('ar-scene');
+    
+    console.log(`Creating ${totalModels} target entities...`);
+    updateStatus(`Loading ${totalModels} models...`);
+
+    Object.entries(TARGET_MAPPING).forEach(([targetIndex, modelName]) => {
+      console.log(`  [${targetIndex}] → ${modelName}.glb`);
+
+      // ===== CREATE ASSET =====
+      const asset = document.createElement('a-asset-item');
+      asset.id = `model-${modelName}`;
+      asset.setAttribute('src', `./models/${modelName}.glb`);
+      asset.setAttribute('crossorigin', 'anonymous');
+      
+      // Track when model loads
+      asset.addEventListener('load', () => {
+        loadedModels++;
+        const progress = Math.round((loadedModels / totalModels) * 100);
+        updateStatus(`Loading: ${progress}%`);
+        console.log(`✅ Loaded ${modelName} (${loadedModels}/${totalModels})`);
+
+        if (loadedModels === totalModels) {
+          updateStatus('Ready - Scan item');
+          document.getElementById('loading').style.display = 'none';
+        }
+      });
+
+      asset.addEventListener('error', () => {
+        console.error(`❌ Failed to load ${modelName}`);
+        updateStatus(`Error loading: ${modelName}`);
+      });
+
+      assetsContainer.appendChild(asset);
+
+      // ===== CREATE TARGET ENTITY =====
+      const targetEntity = document.createElement('a-entity');
+      targetEntity.id = `target-${targetIndex}`;
+      targetEntity.setAttribute('mindar-image-target', `targetIndex: ${targetIndex}`);
+      targetEntity.setAttribute('persist-model', '');
+      targetEntity.setAttribute('smooth-tracking', 'smoothness: 0.08');
+
+      // Track when target is found/lost
+      scene.addEventListener('targetFound', (event) => {
+        if (event.detail.targetIndex === parseInt(targetIndex)) {
+          currentlyTrackedTarget = modelName;
+          updateStatus(`Showing: ${modelName.toUpperCase()}`);
+          console.log(`🎯 Target found: ${modelName}`);
+        }
+      });
+
+      scene.addEventListener('targetLost', (event) => {
+        if (event.detail.targetIndex === parseInt(targetIndex)) {
+          updateStatus('Scan item');
+          console.log(`⏸ Target lost: ${modelName}`);
+        }
+      });
+
+      // ===== POSITION & ROTATION WRAPPER =====
+      // This wrapper ensures consistent positioning and rotation
+      const positionWrapper = document.createElement('a-entity');
+      positionWrapper.setAttribute('position', '0 0 0.3');
+      positionWrapper.setAttribute('rotation', '-45 0 0'); // 45° tilt towards camera
+
+      // ===== 3D MODEL =====
+      const model = document.createElement('a-gltf-model');
+      model.id = `model-mesh-${targetIndex}`;
+      model.setAttribute('pinch-scale', '');         // Enable pinch zoom
+      model.setAttribute('drag-rotate', '');         // Enable drag rotation
+      model.setAttribute('auto-scale-model', 'targetWidth: 1.5'); // Auto-scale
+      model.setAttribute('src', `#model-${modelName}`);
+      model.setAttribute('position', '0 0 0');
+      model.setAttribute('rotation', '0 0 0');
+      model.setAttribute('scale', '1 1 1');
+
+      // Track model loading
+      model.addEventListener('model-loaded', () => {
+        console.log(`  └─ Model mesh loaded: ${modelName}`);
+      });
+
+      model.addEventListener('error', () => {
+        console.error(`  └─ Model mesh error: ${modelName}`);
+      });
+
+      // ===== MODEL NAME LABEL =====
+      const label = document.createElement('a-text');
+      label.setAttribute('value', modelName.toUpperCase());
+      label.setAttribute('position', '0 -1.2 0');
+      label.setAttribute('scale', '0.5 0.5 0.5');
+      label.setAttribute('color', 'white');
+      label.setAttribute('align', 'center');
+      label.setAttribute('anchor', 'center');
+
+      // ===== ASSEMBLE HIERARCHY =====
+      positionWrapper.appendChild(model);
+      positionWrapper.appendChild(label);
+      targetEntity.appendChild(positionWrapper);
+
+      // Add to scene
+      scene.appendChild(targetEntity);
     });
+
+    console.log(`✅ Created ${totalModels} target entities`);
+  }
+
+  // ============================================================
+  // INITIALIZATION
+  // ============================================================
+
+  document.addEventListener('DOMContentLoaded', () => {
+    console.log('=== Restaurant AR Menu Initializing ===');
+    console.log(`Total models to load: ${totalModels}`);
+    
+    const scene = document.getElementById('ar-scene');
+
+    // Wait for A-Frame scene to load
+    scene.addEventListener('loaded', () => {
+      console.log('✅ A-Frame scene loaded');
+      createTargetEntities();
+    });
+
+    // AR system ready
+    scene.addEventListener('arReady', () => {
+      console.log('✅ AR system ready - camera should be visible');
+    });
+
+    // AR errors
+    scene.addEventListener('arError', (event) => {
+      console.error('❌ AR Error:', event.detail);
+      updateStatus(`AR Error: ${event.detail.error}`);
+    });
+
+    // Timeout fallback
+    setTimeout(() => {
+      if (document.getElementById('loading').style.display !== 'none') {
+        console.warn('⚠️ Loading timeout');
+        document.getElementById('loading').style.display = 'none';
+        updateStatus('Scan item');
+      }
+    }, 8000);
   });
+
+  // ============================================================
+  // UTILITY: Show current tracking info
+  // ============================================================
+  window.getARStatus = function() {
+    console.log(`Currently tracked: ${currentlyTrackedTarget || 'None'}`);
+    console.log(`Loaded models: ${loadedModels}/${totalModels}`);
+    return {
+      currentModel: currentlyTrackedTarget,
+      loadedModels: loadedModels,
+      totalModels: totalModels
+    };
+  };
 </script>
 
 </body>
