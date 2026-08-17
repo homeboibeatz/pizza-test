@@ -121,18 +121,24 @@
     });
 
     // ============================================================
-    // COMPONENT 2: Drag to Rotate
+    // COMPONENT 2: Drag to Rotate (Free rotation - X and Y axis)
     // ============================================================
+    // Horizontal drag -> spin left/right (Y axis)
+    // Vertical drag   -> tilt up/down (X axis)
+    // Combining both gives full multi-directional rotation control,
+    // similar to spinning a globe with your finger.
     AFRAME.registerComponent("drag-rotate", {
       init: function () {
         const el = this.el;
         let isDragging = false;
         let lastX = 0;
+        let lastY = 0;
 
         window.addEventListener("touchstart", (e) => {
           if (e.touches.length === 1) {
             isDragging = true;
             lastX = e.touches[0].clientX;
+            lastY = e.touches[0].clientY;
           }
         }, { passive: true });
 
@@ -141,9 +147,22 @@
           e.preventDefault();
 
           const currentX = e.touches[0].clientX;
+          const currentY = e.touches[0].clientY;
           const deltaX = currentX - lastX;
+          const deltaY = currentY - lastY;
+
+          // Horizontal finger movement -> spin around Y axis
           el.object3D.rotation.y += deltaX * 0.01;
+          // Vertical finger movement -> tilt around X axis
+          // NOTE: sign is inverted (-=) vs. what you'd naively expect,
+          // because dragging your finger UP on screen (negative deltaY)
+          // should tilt the TOP of the model TOWARD you, matching how
+          // trackball/orbit controls conventionally feel. Using += here
+          // made it feel backwards.
+          el.object3D.rotation.x -= deltaY * 0.01;
+
           lastX = currentX;
+          lastY = currentY;
         }, { passive: false });
 
         window.addEventListener("touchend", () => {
@@ -153,99 +172,231 @@
     });
 
     // ============================================================
-    // COMPONENT 3: Smooth Tracking (Reduces Jitter/Stutter)
+    // COMPONENT 3+4: Stable Tracking (real smoothing + persistence)
     // ============================================================
-    AFRAME.registerComponent('smooth-tracking', {
-      schema: {
-        smoothness: { type: 'number', default: 0.1 }
-      },
-
-      init: function() {
-        const el = this.el;
-        const smoothness = this.data.smoothness;
-        
-        let lastPosition = new THREE.Vector3(0, 0, 0.3);
-        let lastRotation = new THREE.Euler(0, 0, 0);
-
-        const originalSetAttribute = el.setAttribute.bind(el);
-        el.setAttribute = function(attr, value) {
-          if (attr === 'position' && typeof value === 'object') {
-            const current = el.object3D.position;
-            value = {
-              x: current.x + (value.x - current.x) * smoothness,
-              y: current.y + (value.y - current.y) * smoothness,
-              z: current.z + (value.z - current.z) * smoothness
-            };
-          }
-          return originalSetAttribute(attr, value);
-        };
-      }
-    });
-
-    // ============================================================
-    // COMPONENT 4: Model Persistence (Keep showing when target lost)
-    // ============================================================
+    // THIS REPLACES TWO PREVIOUSLY BROKEN THINGS:
+    //
+    // 1. The old "smooth-tracking" component monkey-patched el.setAttribute
+    //    to smooth position changes. But MindAR updates object3D.position/
+    //    quaternion DIRECTLY every frame - it never calls setAttribute().
+    //    So that smoothing code never actually ran, not even once. That's
+    //    the real reason the model was still shaking.
+    //
+    // 2. The old "persist-model" only froze the transform on target-lost,
+    //    with no smoothing while actively tracking.
+    //
+    // Both are merged into one component here to avoid tick-ordering bugs
+    // between two separate components fighting over the same object3D.
+    //
+    // HOW REAL SMOOTHING WORKS:
+    // Each frame, MindAR writes a fresh (sometimes noisy/jittery) raw
+    // position+rotation into object3D BEFORE our tick() runs (A-Frame
+    // runs system-level tracking updates before per-entity component
+    // ticks). We read that raw value, blend it with our own remembered
+    // "smoothed" value from last frame (exponential moving average), and
+    // write the blended result back into object3D - AFTER MindAR already
+    // wrote its raw value, so ours is what actually gets rendered.
     AFRAME.registerComponent('persist-model', {
+      schema: {
+        smoothness: { type: 'number', default: 0.15 } // lower = smoother but laggier, higher = snappier but shakier
+      },
+
       init: function() {
-        const el = this.el;
-        let lastGoodPosition = new THREE.Vector3(0, 0, 0.3);
-        let lastGoodRotation = new THREE.Euler(0, 0, 0);
-        let isTracking = false;
+        this.isTracking = false;
+        this.hasSmoothed = false;
 
-        const scene = document.querySelector('a-scene');
+        this.smoothedPosition = new THREE.Vector3();
+        this.smoothedQuaternion = new THREE.Quaternion();
 
-        scene.addEventListener('targetFound', () => {
-          isTracking = true;
-        });
+        this.frozenPosition = new THREE.Vector3();
+        this.frozenQuaternion = new THREE.Quaternion();
+        this.hasFrozen = false;
 
-        scene.addEventListener('targetLost', () => {
-          isTracking = false;
-        });
-
-        const updatePosition = () => {
-          if (isTracking) {
-            lastGoodPosition.copy(el.object3D.position);
-            lastGoodRotation.copy(el.object3D.rotation);
-          } else {
-            el.object3D.position.copy(lastGoodPosition);
-            el.object3D.rotation.copy(lastGoodRotation);
-          }
-          requestAnimationFrame(updatePosition);
+        this.onTargetFound = () => {
+          this.isTracking = true;
         };
 
-        updatePosition();
+        this.onTargetLost = () => {
+          this.isTracking = false;
+          // Freeze at whatever our last SMOOTHED transform was (not the
+          // raw jittery one) so it doesn't snap to a noisy value on loss.
+          this.frozenPosition.copy(this.smoothedPosition);
+          this.frozenQuaternion.copy(this.smoothedQuaternion);
+          this.hasFrozen = true;
+        };
+
+        this.el.addEventListener('targetFound', this.onTargetFound);
+        this.el.addEventListener('targetLost', this.onTargetLost);
+      },
+
+      tick: function() {
+        const obj = this.el.object3D;
+
+        // Always force visible - fixes the disappearing-model bug.
+        obj.visible = true;
+
+        if (this.isTracking) {
+          // obj.position/quaternion currently hold MindAR's fresh raw
+          // estimate for this frame (written before this tick ran).
+          if (!this.hasSmoothed) {
+            // First tracked frame - snap directly, nothing to blend yet.
+            this.smoothedPosition.copy(obj.position);
+            this.smoothedQuaternion.copy(obj.quaternion);
+            this.hasSmoothed = true;
+          } else {
+            const alpha = this.data.smoothness;
+            this.smoothedPosition.lerp(obj.position, alpha);
+            this.smoothedQuaternion.slerp(obj.quaternion, alpha);
+          }
+
+          obj.position.copy(this.smoothedPosition);
+          obj.quaternion.copy(this.smoothedQuaternion);
+        } else if (this.hasFrozen) {
+          // Target out of view - hold at the last smoothed transform.
+          obj.position.copy(this.frozenPosition);
+          obj.quaternion.copy(this.frozenQuaternion);
+        }
+      },
+
+      remove: function() {
+        this.el.removeEventListener('targetFound', this.onTargetFound);
+        this.el.removeEventListener('targetLost', this.onTargetLost);
       }
     });
 
     // ============================================================
-    // COMPONENT 5: Auto Scale Based on Model Bounds
+    // COMPONENT 5: Fill-Screen Scale
     // ============================================================
-    AFRAME.registerComponent('auto-scale-model', {
+    // GOAL: no matter how close or far you are from the target when you
+    // FIRST scan it, the model should appear filling almost the full
+    // WIDTH of the phone screen. After that, moving the camera closer or
+    // farther should behave like approaching a real object - it gets
+    // bigger/smaller naturally (normal AR perspective), NOT re-fit to
+    // the screen every frame.
+    //
+    // How: measure distance from camera to target at the moment of first
+    // detection, compute the visible WIDTH (not height) of the camera
+    // frustum at that distance using the camera's aspect ratio, then
+    // scale the model so its native width matches ~90% of that. This
+    // scale is calculated ONCE and locked - everything after that is
+    // governed by normal perspective as you move, exactly like a real
+    // physical object would behave.
+    AFRAME.registerComponent('fill-screen-scale', {
       schema: {
-        targetWidth: { type: 'number', default: 1.5 }
+        screenFill: { type: 'number', default: 0.9 } // 0.9 = ~90% of screen width
       },
 
       init: function() {
-        const el = this.el;
-        const targetWidth = this.data.targetWidth;
+        this.nativeSize = null;   // model's raw bounding box size, unscaled
+        this.scaled = false;      // becomes true once we've locked in a scale
+        this.isTracking = false;  // tracked independently - object3D.visible
+                                   // is forced true permanently by persist-model,
+                                   // so it can't be used to detect real tracking
+        this.targetEntity = this.el.closest('[mindar-image-target]');
 
-        el.addEventListener('model-loaded', () => {
+        if (this.targetEntity) {
+          this.targetEntity.addEventListener('targetFound', () => {
+            this.isTracking = true;
+          });
+        }
+
+        this.el.addEventListener('model-loaded', () => {
           try {
-            const mesh = el.getObject3D('mesh');
+            const mesh = this.el.getObject3D('mesh');
             if (!mesh) return;
 
-            const box = new THREE.Box3().setFromObject(mesh);
-            const size = box.getSize(new THREE.Vector3());
+            // Reset scale to 1 first so the bounding box we measure is
+            // in true native/local units, unaffected by any prior scale.
+            this.el.object3D.scale.set(1, 1, 1);
 
-            if (size.x > 0) {
-              const scaleNeeded = targetWidth / size.x;
-              el.object3D.scale.set(scaleNeeded, scaleNeeded, scaleNeeded);
-              console.log(`✅ Model auto-scaled to: ${scaleNeeded.toFixed(3)}`);
-            }
+            const box = new THREE.Box3().setFromObject(mesh);
+            this.nativeSize = box.getSize(new THREE.Vector3());
           } catch (e) {
-            console.error('Auto-scale error:', e);
+            console.error('fill-screen-scale: failed to measure model', e);
           }
         });
+      },
+
+      tick: function() {
+        if (this.scaled || !this.nativeSize || !this.targetEntity) return;
+        if (!this.isTracking) return; // wait for a real (live) detection
+
+        // Use A-Frame's own reference to the camera actually being used
+        // for rendering (sceneEl.camera), rather than looking up the
+        // <a-camera> entity's object3D by hand. This guarantees we're
+        // reading the exact camera MindAR is driving, not a stale or
+        // mismatched reference.
+        const sceneEl = document.querySelector('a-scene');
+        const camObj = sceneEl && sceneEl.camera;
+        if (!camObj) return;
+
+        const camPos = new THREE.Vector3();
+        const targetPos = new THREE.Vector3();
+        camObj.getWorldPosition(camPos);
+        this.targetEntity.object3D.getWorldPosition(targetPos);
+
+        const distance = camPos.distanceTo(targetPos);
+        if (distance <= 0.001) return;
+
+        // IMPORTANT: MindAR overrides this camera's projectionMatrix
+        // directly with values calibrated to the actual phone camera/
+        // video feed - it does NOT necessarily keep camObj.fov / .aspect
+        // in sync with that. Reading fov/aspect here was giving us a
+        // frustum size that didn't match what MindAR is really using,
+        // which is why the model wasn't actually filling the screen.
+        //
+        // Fix: read the frustum size straight out of the real, active
+        // projection matrix. For a standard perspective matrix (column-
+        // major, three.js layout), elements[0] and elements[5] directly
+        // encode 2*near/width and 2*near/height of the near plane - and
+        // since the frustum is a straight cone from the camera, the
+        // visible width/height at ANY distance d scales linearly:
+        //   visibleWidth  = d * (2 / elements[0])
+        //   visibleHeight = d * (2 / elements[5])
+        // This works correctly no matter what fov/aspect MindAR set.
+        const pm = camObj.projectionMatrix.elements;
+        if (!pm[0] || !pm[5]) return; // not initialized yet, try again next frame
+
+        const visibleWidth = distance * (2 / Math.abs(pm[0]));
+        const desiredWidth = visibleWidth * this.data.screenFill;
+
+        // Use the LARGEST dimension across all 3 axes, not just .x.
+        // Why: after a GLB import, a model's "true" left-right width
+        // isn't guaranteed to sit on the local X axis - it depends on
+        // how the model was authored/exported. If width actually ended
+        // up on Z (depth) instead, using nativeSize.x alone would give
+        // a tiny, wrong number and the model would end up far smaller
+        // than intended. Using the max of x/y/z is a safe, orientation-
+        // independent way to make sure the model's biggest visible side
+        // ends up close to the target screen-fill size.
+        const nativeSizeMax = Math.max(
+          this.nativeSize.x,
+          this.nativeSize.y,
+          this.nativeSize.z,
+          0.001
+        );
+        const scale = desiredWidth / nativeSizeMax;
+
+        // Sanity check - if projectionMatrix wasn't fully ready yet this
+        // could produce garbage (NaN/Infinity/negative). Skip and retry
+        // next frame instead of locking in a broken scale.
+        if (!isFinite(scale) || scale <= 0) return;
+
+        this.el.object3D.scale.set(scale, scale, scale);
+        this.scaled = true; // lock it in - moving closer/farther now behaves naturally
+
+        const debugMsg = `Scale ${scale.toFixed(2)}x | dist ${distance.toFixed(2)}m | model xyz: ${this.nativeSize.x.toFixed(2)},${this.nativeSize.y.toFixed(2)},${this.nativeSize.z.toFixed(2)}`;
+        console.log(`✅ Fill-screen scale locked: ${debugMsg}`);
+
+        // Temporary on-screen readout so you can verify this on your phone
+        // without needing to plug into remote DevTools. Safe to remove once
+        // sizing looks right - just delete this if-block.
+        if (typeof updateStatus === 'function') {
+          updateStatus(debugMsg);
+          setTimeout(() => {
+            if (typeof updateStatus === 'function') updateStatus('Ready');
+          }, 6000);
+        }
       }
     });
   </script>
@@ -312,12 +463,11 @@
   //
 
   const TARGET_MAPPING = {
-    0: 'burger',           // Target Image 0 → pizza.glb
-    1: 'pizza',          // Target Image 1 → burger.glb
+    0: 'burger',           // Target Image 0 → burger.glb
+    1: 'pizza',            // Target Image 1 → pizza.glb
     // Add more mappings as needed - up to 30+
-    // 6: 'soup',
-    // 7: 'appetizer',
-    // 8: 'steak',
+    // 2: 'salad',
+    // 3: 'pasta',
     // ... etc
   };
 
@@ -376,8 +526,7 @@
       const targetEntity = document.createElement('a-entity');
       targetEntity.id = `target-${targetIndex}`;
       targetEntity.setAttribute('mindar-image-target', `targetIndex: ${targetIndex}`);
-      targetEntity.setAttribute('persist-model', '');
-      targetEntity.setAttribute('smooth-tracking', 'smoothness: 0.08');
+      targetEntity.setAttribute('persist-model', 'smoothness: 0.15'); // real EMA smoothing + freeze-on-lost, both in one component now
 
       // Track when target is found/lost
       scene.addEventListener('targetFound', (event) => {
@@ -396,17 +545,31 @@
       });
 
       // ===== POSITION & ROTATION WRAPPER =====
-      // This wrapper ensures consistent positioning and rotation
+      // No artificial tilt here. The target plane itself already faces
+      // the camera at whatever angle you're physically holding the phone
+      // at - a vertical monitor gives a face-on view, a flat printed
+      // target on a table naturally gives a top-down view, simply because
+      // of how you're holding the camera relative to it. Baking in a
+      // fixed "-45 0 0" tilt fought against that and looked wrong on
+      // anything but one specific physical setup.
+      //
+      // NOTE: if your pizza.glb (and other models) were modeled "standing
+      // up" (Y-up, like a character), they may need a base correction so
+      // they lie flat on the target plane instead of standing on edge.
+      // Try these values on the wrapper's rotation if models look wrong:
+      //   '0 0 0'    - use as-is (try this first)
+      //   '-90 0 0'  - lay a Y-up model flat, facing up
+      //   '90 0 0'   - lay a Y-up model flat, facing down
       const positionWrapper = document.createElement('a-entity');
       positionWrapper.setAttribute('position', '0 0 0.3');
-      positionWrapper.setAttribute('rotation', '-45 0 0'); // 45° tilt towards camera
+      positionWrapper.setAttribute('rotation', '0 0 0');
 
       // ===== 3D MODEL =====
       const model = document.createElement('a-gltf-model');
       model.id = `model-mesh-${targetIndex}`;
-      model.setAttribute('pinch-scale', '');         // Enable pinch zoom
-      model.setAttribute('drag-rotate', '');         // Enable drag rotation
-      model.setAttribute('auto-scale-model', 'targetWidth: 1.5'); // Auto-scale
+      model.setAttribute('pinch-scale', '');            // Enable pinch zoom
+      model.setAttribute('drag-rotate', '');             // Enable drag rotation (X + Y axis)
+      model.setAttribute('fill-screen-scale', 'screenFill: 0.9'); // Fills ~90% of screen WIDTH on first scan, any distance
       model.setAttribute('src', `#model-${modelName}`);
       model.setAttribute('position', '0 0 0');
       model.setAttribute('rotation', '0 0 0');
