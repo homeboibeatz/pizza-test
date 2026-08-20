@@ -8,13 +8,13 @@
 //     and supports pinch-to-scale and drag-to-rotate.
 
 import {getCurrentDish} from './menu-data'
+import {touchBlock} from './touch-state'
 
 export const tapPlaceComponent = {
   init() {
     const ground = document.getElementById('ground')
     this.prompt = document.getElementById('promptText')
     this.dishEl = null // the placed entity, once it exists
-    this.suppressMoveUntil = 0
     let maxTouches = 0
 
     const dish = getCurrentDish()
@@ -26,25 +26,26 @@ export const tapPlaceComponent = {
     this.prompt.textContent = `Tap the floor to place the ${dish.name}`
 
     // Block dish movement during and shortly after ANY 2-finger gesture
-    // (pinch zoom). Browsers can fire a click from a finger during or after
-    // a pinch, which would otherwise jump the dish to that spot. The block
-    // is active the whole time fingers are down and for ~1.5s after the
-    // last finger lifts - then a normal tap moves the dish again.
+    // (pinch zoom), and rotation drags (handled in drag-rotate). Browsers can
+    // fire a click from a finger during or after a gesture, which would
+    // otherwise jump the dish to that spot. The block is active the whole
+    // time fingers are down and for ~1.5s after the last finger lifts - then
+    // a normal tap moves the dish again.
     window.addEventListener('touchstart', (e) => {
       if (e.touches.length >= 2) {
         maxTouches = 2
-        this.suppressMoveUntil = Date.now() + 1500
+        touchBlock.blockFor(1500)
       }
     })
     window.addEventListener('touchmove', (e) => {
       if (e.touches.length >= 2) {
-        this.suppressMoveUntil = Date.now() + 1500
+        touchBlock.blockFor(1500)
       }
     })
     window.addEventListener('touchend', (e) => {
       if (e.touches.length === 0) {
         if (maxTouches >= 2) {
-          this.suppressMoveUntil = Date.now() + 1500
+          touchBlock.blockFor(1500)
           console.log('pinch ended - taps blocked for 1.5s')
         }
         maxTouches = 0
@@ -52,7 +53,7 @@ export const tapPlaceComponent = {
     })
 
     ground.addEventListener('click', (event) => {
-      if (Date.now() < this.suppressMoveUntil) return
+      if (touchBlock.isBlocked()) return
 
       const touchPoint = event.detail.intersection.point
 
