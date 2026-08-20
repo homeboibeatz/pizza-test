@@ -70,8 +70,8 @@ export const dragRotateComponent = {
       const deltaX = currentX - lastX
       const deltaY = currentY - lastY
 
-      el.object3D.rotation.y += deltaX * 0.01
-      el.object3D.rotation.x -= deltaY * 0.01
+      el.object3D.rotation.y -= deltaX * 0.01
+      el.object3D.rotation.x += deltaY * 0.01
 
       lastX = currentX
       lastY = currentY
