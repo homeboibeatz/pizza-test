@@ -14,6 +14,8 @@ export const tapPlaceComponent = {
     const ground = document.getElementById('ground')
     this.prompt = document.getElementById('promptText')
     this.dishEl = null // the placed entity, once it exists
+    this.suppressMoveUntil = 0
+    let multiTouchActive = false
 
     const dish = getCurrentDish()
     if (!dish) {
@@ -23,7 +25,25 @@ export const tapPlaceComponent = {
     this.dish = dish
     this.prompt.textContent = `Tap the floor to place the ${dish.name}`
 
+    // While the user is pinch-zooming (2+ fingers), ignore taps so the dish
+    // doesn't jump to the touch position. The browser can fire a click from
+    // the first finger of a pinch, which would otherwise move the model.
+    window.addEventListener('touchstart', (e) => {
+      if (e.touches.length >= 2) {
+        multiTouchActive = true
+        this.suppressMoveUntil = Date.now() + 500
+      }
+    })
+    window.addEventListener('touchend', () => {
+      if (multiTouchActive) {
+        multiTouchActive = false
+        this.suppressMoveUntil = Date.now() + 500
+      }
+    })
+
     ground.addEventListener('click', (event) => {
+      if (Date.now() < this.suppressMoveUntil) return
+
       const touchPoint = event.detail.intersection.point
 
       if (!this.dishEl) {
@@ -89,35 +109,56 @@ export const tapPlaceComponent = {
     this.dishEl = newElement
   },
 
-  // Scales the model so its footprint spans ~90% of the phone's screen
-  // width at its current distance from the camera. Returns 1 (no scaling)
-  // if anything can't be measured, so it never breaks placement.
-  fitToScreen(el, touchPoint) {
+  // Scales the model so its on-screen width fills ~90% of the phone's
+  // screen width. Measures the model's actual projected screen size (NDC),
+  // so it works regardless of model size, distance, or camera FOV.
+  // Returns 1 (no scaling) if anything can't be measured, so it never
+  // breaks placement.
+  fitToScreen(el) {
     const camera = this.el.sceneEl.camera
     if (!camera) return 1
 
-    // Measure the footprint at unit scale so the ratio comes out right.
+    // Measure the on-screen size at unit scale so the ratio comes out right.
     el.object3D.scale.set(1, 1, 1)
     el.object3D.updateMatrixWorld(true)
+    camera.updateMatrixWorld(true)
+    if (camera.matrixWorldInverse) {
+      camera.matrixWorldInverse.copy(camera.matrixWorld).invert()
+    }
+
     const box = new AFRAME.THREE.Box3().setFromObject(el.object3D)
-    const size = box.getSize()
-    const modelWidth = Math.max(size.x, size.z)
-    if (!Number.isFinite(modelWidth) || modelWidth <= 0) return 1
+    if (box.isEmpty()) {
+      console.warn('fit-to-screen: model bounding box is empty')
+      return 1
+    }
 
-    const camPos = new AFRAME.THREE.Vector3()
-    camera.getWorldPosition(camPos)
-    const dist = camPos.distanceTo(
-      new AFRAME.THREE.Vector3(touchPoint.x, touchPoint.y, touchPoint.z),
-    )
+    // Project all 8 corners of the model's bounding box to screen space and
+    // measure how wide it is on screen right now.
+    const {min, max} = box
+    const xs = []
+    const ys = []
+    for (let i = 0; i < 8; i++) {
+      const corner = new AFRAME.THREE.Vector3(
+        i & 1 ? max.x : min.x,
+        i & 2 ? max.y : min.y,
+        i & 4 ? max.z : min.z,
+      )
+      corner.project(camera)
+      xs.push(corner.x)
+      ys.push(corner.y)
+    }
 
-    const vFov = AFRAME.THREE.MathUtils.degToRad(camera.fov || 80)
-    const canvas = this.el.sceneEl.canvas
-    const aspect = canvas ? canvas.width / canvas.height : window.innerWidth / window.innerHeight
-    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect)
-    const visibleWidth = 2 * dist * Math.tan(hFov / 2)
-    if (!Number.isFinite(visibleWidth) || visibleWidth <= 0) return 1
+    const screenW = Math.max(...xs) - Math.min(...xs)
+    const screenH = Math.max(...ys) - Math.min(...ys)
+    if (!Number.isFinite(screenW) || screenW <= 0) {
+      console.warn('fit-to-screen: bad on-screen width', screenW)
+      return 1
+    }
 
-    return (0.9 * visibleWidth) / modelWidth
+    // NDC width of the full viewport is 2, so scale to 90% of that.
+    const scale = (0.9 * 2) / screenW
+    console.log('fit-to-screen:', {screenW, screenH, scale})
+    return scale
   },
 
   moveDish(touchPoint) {
