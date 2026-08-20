@@ -1,61 +1,60 @@
-# A-Frame: World Effects
+# Pizza Test — AR Menu
 
-This example allows the user to grow cacti 🌵  by tapping or clicking the ground. Showcases raycasting,
-spawning new objects, and importing a 3D model.
+A WebAR restaurant menu built on **8th Wall** + **A-Frame**. Tap the detected floor or table to place a 3D dish in the room, then pinch to zoom and drag to rotate it.
 
-![Cacti sprouting from the ground, in augmented reality, desktop 3D, and virtual reality](./src/assets/preview.gif)
+- 🍕 Place a dish (pizza, burger) on any flat surface in AR
+- 👆 Tap to place / reposition — the dish animates smoothly to the new spot
+- ✌️ Pinch to zoom (clamped 0.1x–50x)
+- 🔄 Drag to rotate — follows your finger exactly, and stays put while you rotate
+- 📱 Fit-to-screen: on placement the dish scales to fill ~90% of the screen width
 
-<details><summary>Try it out</summary>
+## Dish selection
 
-https://8thwall.org/aframe-world-effects-example/
+Which dish loads is set by a URL parameter — one URL (and QR code) per dish, all sharing this single built project:
 
-<img alt="QR Code for the preview link" src="https://8th.io/qr?v=2&url=https://8thwall.org/aframe-world-effects-example/" width=250 height=250 />
+```
+https://yoursite.com/?dish=pizza
+https://yoursite.com/?dish=burger
+```
 
-</details>
+Defaults to the first entry in `src/menu-data.js` when no `?dish=` is given. Add new dishes by dropping a GLB into `src/assets/` and adding an entry to `MENU_DATA` (webpack copies `src/assets/` into `dist/assets/`).
 
-## Usage
+## Local development
 
-1. On this repository, click **Code** > **Download ZIP**. If you clone the repository instead, make sure you have Git LFS installed and run `git lfs pull`
-2. Unzip the folder to the location you'd like to work in
-3. `npm install`
-4. `npm run serve`
-5. To connect to a mobile device, follow [these instructions](https://8th.io/test-on-mobile)
-6. Recommended: Track your files using [git](https://git-scm.com/about) to avoid losing progress
+```
+npm install
+npm run serve
+```
 
-## Deployment
+Open the printed URL (on a phone for AR, or desktop for 3D). To preview a specific dish: `http://localhost:8080/?dish=pizza`
 
-This project contains Github Actions configuration for deployment to Github Pages, which triggers automatically by pushing the `main` branch. You can also create a production build using `npm run build`, which outputs the production build to the `dist` folder, and publish to the web using [this guide](https://8thwall.org/docs/getting-started/publishing#self-hosting-your-project).
+## Build & deploy
 
-## Questions?
+```
+npm run build
+```
 
-Please raise any questions on [Github Discussions](https://github.com/orgs/8thwall/discussions) or join the [Discord](https://8th.io/discord) to connect with the community.
+Outputs the production build to `dist/`. Deploying via Vercel:
 
----
+```
+vercel --prod
+```
 
-### Optimizing for Metaversal Deployment
+`vercel.json` sets the build command (`npm run build`) and output directory (`dist`), so pushes to the `main` branch auto-deploy.
 
-With R18, the all-new 8th Wall Engine features Metaversal Deployment, enabling you to create WebAR experiences once and deploy them to smartphones, tablets, computers and both AR and VR headsets. This project has a few platform-specific customizations:
+## Project structure
 
-In **body.html**, we add the ```"allowedDevices: any"``` parameter to our ```xrweb``` component in ```<a-scene>``` 
-which ensures the project opens on all platforms, including desktop. Environment parameters 
-have been customized to generate an open desert space.
+| Path | What it is |
+| --- | --- |
+| `src/app.js` | Entry point — registers the custom A-Frame components |
+| `src/index.html` | The 8th Wall `<a-scene>` (floor detection, camera) |
+| `src/tap-place.js` | Tap-to-place, fit-to-screen, and pinch/rotate tap-blocking |
+| `src/interaction-components.js` | `pinch-scale` and `drag-rotate` gesture components |
+| `src/touch-state.js` | Shared touch-block state (a gesture release never jumps the dish) |
+| `src/menu-data.js` | Dish catalog + `?dish=` URL selection |
+| `src/assets/` | GLB models (copied into `dist/assets/`) |
+| `config/webpack.config.js` | Webpack build config |
 
----
+## License
 
-### About World Tracking
-
-Built entirely using standards-compliant JavaScript and WebGL, 8th Wall’s Simultaneous Localization 
-and Mapping (SLAM) engine is hyper-optimized for real-time AR on mobile browsers. Features include
-Six Degrees of Freedom (6-DoF), Lighting estimation, instant surface detection and responsive scale.
-
-The Y position of the camera at start effectively determines the scale of virtual content on a surface 
-(e.g. smaller y, bigger content). This can be reset at any time by calling 
-[```recenter()```](https://www.8thwall.com/docs/web/#recenter).
-
-The camera should NOT be at a height (Y) of zero. It must be set to a non-zero value.
-
----
-
-#### Attribution
-
-Toon Cactus by [PolyChromic](https://skfb.ly/6Xvws)
+See [LICENSE](LICENSE).
