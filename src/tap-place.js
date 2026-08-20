@@ -15,7 +15,7 @@ export const tapPlaceComponent = {
     this.prompt = document.getElementById('promptText')
     this.dishEl = null // the placed entity, once it exists
     this.suppressMoveUntil = 0
-    let multiTouchActive = false
+    let maxTouches = 0
 
     const dish = getCurrentDish()
     if (!dish) {
@@ -25,20 +25,29 @@ export const tapPlaceComponent = {
     this.dish = dish
     this.prompt.textContent = `Tap the floor to place the ${dish.name}`
 
-    // While the user is pinch-zooming (2+ fingers), ignore taps so the dish
-    // doesn't jump to the touch position. Browsers can fire a click from the
-    // first finger of a pinch, so taps are suppressed during the pinch and
-    // for ~1 second after it ends - then a normal tap moves the dish again.
+    // Block dish movement during and shortly after ANY 2-finger gesture
+    // (pinch zoom). Browsers can fire a click from a finger during or after
+    // a pinch, which would otherwise jump the dish to that spot. The block
+    // is active the whole time fingers are down and for ~1.5s after the
+    // last finger lifts - then a normal tap moves the dish again.
     window.addEventListener('touchstart', (e) => {
       if (e.touches.length >= 2) {
-        multiTouchActive = true
-        this.suppressMoveUntil = Date.now() + 1000
+        maxTouches = 2
+        this.suppressMoveUntil = Date.now() + 1500
+      }
+    })
+    window.addEventListener('touchmove', (e) => {
+      if (e.touches.length >= 2) {
+        this.suppressMoveUntil = Date.now() + 1500
       }
     })
     window.addEventListener('touchend', (e) => {
-      if (multiTouchActive && e.touches.length < 2) {
-        multiTouchActive = false
-        this.suppressMoveUntil = Date.now() + 1000
+      if (e.touches.length === 0) {
+        if (maxTouches >= 2) {
+          this.suppressMoveUntil = Date.now() + 1500
+          console.log('pinch ended - taps blocked for 1.5s')
+        }
+        maxTouches = 0
       }
     })
 
