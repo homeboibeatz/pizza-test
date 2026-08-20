@@ -1,23 +1,19 @@
-// Places ONE dish model directly on the detected floor using 8th Wall's
-// world (SLAM) tracking - no tapping required. As soon as the camera is
-// looking down at a floor that SLAM has picked up, the dish pops in at the
-// center of the view, scaled to fill ~90% of the screen width.
-//
-// The dish comes from menu-data.js, picked via the ?dish= URL param.
-// Once placed you can still tap the floor to reposition it, pinch to
-// scale, and drag to rotate.
+// Component that places (and repositions) ONE dish model where the user
+// taps the detected floor/table. Adapted from 8th Wall's original cactus
+// example - key differences:
+//   - Places a single model (not a new one on every tap) - re-tapping
+//     moves the existing dish to the new spot instead of spawning more.
+//   - The model comes from menu-data.js, picked via the ?dish= URL param.
+//   - Once placed, the dish is scaled to fill ~90% of the screen width,
+//     and supports pinch-to-scale and drag-to-rotate.
 
 import {getCurrentDish} from './menu-data'
-
-const FLOOR_Y = 0.01 // top surface of the invisible shadow plane in index.html
 
 export const tapPlaceComponent = {
   init() {
     const ground = document.getElementById('ground')
     this.prompt = document.getElementById('promptText')
     this.dishEl = null // the placed entity, once it exists
-    this.placed = false
-    this.lookFrames = 0
 
     const dish = getCurrentDish()
     if (!dish) {
@@ -25,64 +21,24 @@ export const tapPlaceComponent = {
       return
     }
     this.dish = dish
-    this.prompt.textContent = `Point your phone at the floor to show the ${dish.name}`
+    this.prompt.textContent = `Tap the floor to place the ${dish.name}`
 
-    // Tapping the floor after auto-placement just moves the dish there.
     ground.addEventListener('click', (event) => {
-      if (!this.placed) return
-      this.moveDish(event.detail.intersection.point)
+      const touchPoint = event.detail.intersection.point
+
+      if (!this.dishEl) {
+        this.placeDish(touchPoint)
+      } else {
+        this.moveDish(touchPoint)
+      }
     })
   },
 
-  // Runs every frame. Auto-places the dish (once) once the camera is
-  // reliably looking down at the SLAM-detected floor.
-  tick() {
-    if (this.placed || !this.dish) return
-
-    const floorPoint = this.getFloorLookPoint()
-    if (!floorPoint) {
-      this.lookFrames = 0
-      return
-    }
-
-    // Hold the camera on the floor for a few frames so SLAM has settled
-    // on a stable floor estimate before we commit the position.
-    this.lookFrames += 1
-    if (this.lookFrames < 10) return
-
-    this.placeDish(floorPoint)
-    this.placed = true
-  },
-
-  // Intersects the camera's view ray (screen center) with the virtual
-  // floor plane. Returns null until the phone is actually tilted down.
-  getFloorLookPoint() {
-    const camera = this.el.sceneEl.camera
-    if (!camera) return null
-
-    const pos = new AFRAME.THREE.Vector3()
-    const dir = new AFRAME.THREE.Vector3()
-    camera.getWorldPosition(pos)
-    camera.getWorldDirection(dir)
-
-    // Only place once the camera is genuinely looking down at the floor.
-    if (dir.y > -0.1) return null
-
-    const t = (FLOOR_Y - pos.y) / dir.y
-    if (t < 0.2 || t > 8) return null
-
-    return {
-      x: pos.x + dir.x * t,
-      y: FLOOR_Y,
-      z: pos.z + dir.z * t,
-    }
-  },
-
-  placeDish(floorPoint) {
+  placeDish(touchPoint) {
     const dish = this.dish
     const newElement = document.createElement('a-entity')
 
-    newElement.setAttribute('position', floorPoint)
+    newElement.setAttribute('position', touchPoint)
     newElement.setAttribute('rotation', '0 0 0')
     newElement.setAttribute('visible', 'false')
     newElement.setAttribute('scale', '0.0001 0.0001 0.0001')
@@ -99,7 +55,7 @@ export const tapPlaceComponent = {
     this.el.sceneEl.appendChild(newElement)
 
     newElement.addEventListener('model-loaded', () => {
-      const fitScale = this.fitToScreen(newElement, floorPoint)
+      const fitScale = this.fitToScreen(newElement, touchPoint)
 
       newElement.object3D.scale.set(0.0001, 0.0001, 0.0001)
       newElement.setAttribute('visible', 'true')
@@ -124,7 +80,7 @@ export const tapPlaceComponent = {
 
   // Scales the model so its footprint spans ~90% of the phone's screen
   // width at its current distance from the camera.
-  fitToScreen(el, floorPoint) {
+  fitToScreen(el, touchPoint) {
     // Measure the footprint at unit scale so the ratio comes out right.
     el.object3D.scale.set(1, 1, 1)
     el.object3D.updateMatrixWorld(true)
@@ -136,7 +92,7 @@ export const tapPlaceComponent = {
     const camPos = new AFRAME.THREE.Vector3()
     camera.getWorldPosition(camPos)
     const dist = camPos.distanceTo(
-      new AFRAME.THREE.Vector3(floorPoint.x, floorPoint.y, floorPoint.z),
+      new AFRAME.THREE.Vector3(touchPoint.x, touchPoint.y, touchPoint.z),
     )
 
     const vFov = AFRAME.THREE.MathUtils.degToRad(camera.fov)
