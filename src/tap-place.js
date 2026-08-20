@@ -26,18 +26,19 @@ export const tapPlaceComponent = {
     this.prompt.textContent = `Tap the floor to place the ${dish.name}`
 
     // While the user is pinch-zooming (2+ fingers), ignore taps so the dish
-    // doesn't jump to the touch position. The browser can fire a click from
-    // the first finger of a pinch, which would otherwise move the model.
+    // doesn't jump to the touch position. Browsers can fire a click from the
+    // first finger of a pinch, so taps are suppressed during the pinch and
+    // for ~1 second after it ends - then a normal tap moves the dish again.
     window.addEventListener('touchstart', (e) => {
       if (e.touches.length >= 2) {
         multiTouchActive = true
-        this.suppressMoveUntil = Date.now() + 500
+        this.suppressMoveUntil = Date.now() + 1000
       }
     })
-    window.addEventListener('touchend', () => {
-      if (multiTouchActive) {
+    window.addEventListener('touchend', (e) => {
+      if (multiTouchActive && e.touches.length < 2) {
         multiTouchActive = false
-        this.suppressMoveUntil = Date.now() + 500
+        this.suppressMoveUntil = Date.now() + 1000
       }
     })
 

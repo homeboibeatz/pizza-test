@@ -28,7 +28,10 @@ export const pinchScaleComponent = {
       }
 
       const scale = startScale * (distance / startDistance)
-      const clampedScale = Math.max(0.2, Math.min(scale, 5))
+      // Generous clamp: the fit-to-screen scale can be large (the dish is
+      // placed filling ~90% of the screen), so the old max of 5 made zooming
+      // feel broken. Keep zoom in/out responsive from any starting scale.
+      const clampedScale = Math.max(0.1, Math.min(scale, 50))
 
       el.object3D.scale.set(clampedScale, clampedScale, clampedScale)
     }, {passive: false})
@@ -51,6 +54,10 @@ export const dragRotateComponent = {
         isDragging = true
         lastX = e.touches[0].clientX
         lastY = e.touches[0].clientY
+      } else {
+        // A second finger joined (pinch) - cancel rotation so the dish
+        // doesn't spin while the user is trying to zoom.
+        isDragging = false
       }
     }, {passive: true})
 
