@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <title>Restaurant AR Menu</title>
+  <meta itemprop="name" content="Restaurant AR Menu">
+  <meta name="description" content="Tap the table to place this dish in AR and see it from every angle.">
+
+  <script crossorigin="anonymous" src="./external/scripts/8frame-1.5.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@8thwall/xrextras@1/dist/xrextras.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@8thwall/landing-page@1/dist/landing-page.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js" crossorigin="anonymous" async="true" data-preload-chunks="slam"></script>
+</head>
+
+<body>
+<script src="bundle.js"></script>
+<!-- body.html is optional; elements will be added to your html body after app.js is loaded. -->
+
+<div class="over">
+  <span id="promptText">Loading...</span>
+</div>
+
+<!-- Add the tap-place component to the scene so it has an effect -->
+<a-scene
+  tap-place
+  landing-page
+  xrextras-loading
+  xrextras-runtime-error
+  renderer="colorManagement:true"
+  xrweb="
+    allowedDevices: any;
+    defaultEnvironmentFogIntensity: 0.5;
+    defaultEnvironmentSkyBottomColor: #B4C4CC;
+    defaultEnvironmentSkyTopColor: #5ac8fa;
+    defaultEnvironmentSkyGradientStrength: 0.5;">
+
+  <!-- No hardcoded model asset here - each dish's GLB is loaded dynamically
+       by tap-place.js based on the ?dish= URL parameter (see menu-data.js).
+       This is what lets one built project serve every menu item. -->
+  <a-assets></a-assets>
+
+  <!-- The raycaster will emit mouse events on scene objects specified with the cantap class -->
+  <a-camera
+    id="camera"
+    position="0 8 8"
+    raycaster="objects: .cantap"
+    cursor="
+      fuse: false;
+      rayOrigin: mouse;">
+  </a-camera>
+
+  <a-entity
+    light="
+      type: directional;
+      intensity: 0.8;
+      castShadow: true;
+      shadowMapHeight:2048;
+      shadowMapWidth:2048;
+      shadowCameraTop: 40;
+      shadowCameraBottom: -40;
+      shadowCameraRight: 40;
+      shadowCameraLeft: -40;
+      target: #camera"
+    xrextras-attach="target: camera; offset: 8 15 4"
+    position="1 4.3 2.5"
+    shadow>
+  </a-entity>
+
+  <a-light type="ambient" intensity="0.5"></a-light>
+
+  <!-- Invisible tap surface (shader:shadow only renders shadows cast onto
+       it, not the plane itself) - this is what makes the dish look like
+       it's genuinely sitting on your real table, shadow and all. -->
+  <a-box
+    id="ground"
+    class="cantap"
+    scale="1000 2 1000"
+    position="0 -0.99 0"
+    material="shader: shadow; transparent: true; opacity: 0.4"
+    shadow>
+  </a-box>
+</a-scene>
+
+</body>
+
+</html>
